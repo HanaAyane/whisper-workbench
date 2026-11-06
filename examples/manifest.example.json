@@ -1,0 +1,26 @@
+{
+  "models": [
+    {
+      "id": "whisper-ja-1.5B",
+      "type": "asr",
+      "label": "Whisper Japanese 1.5B",
+      "path": "models/whisper-ja-1.5B",
+      "language": "ja",
+      "task": "transcribe",
+      "compute_type": "bfloat16"
+    },
+    {
+      "id": "chickenrice-v2",
+      "type": "translate",
+      "label": "海南鸡 v2 日中翻译",
+      "path": "models/chickenrice-v2",
+      "language": "ja",
+      "task": "translate",
+      "compute_type": "bfloat16"
+    }
+  ],
+  "vad": {
+    "model_path": "models/whisper_vad.onnx",
+    "metadata_path": "models/whisper_vad_metadata.json"
+  }
+}

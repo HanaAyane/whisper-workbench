@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 import ast
-from pathlib import Path
 import subprocess
 import sys
-
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 MAX_TRACKED_BYTES = 10 * 1024 * 1024

@@ -1,39 +1,73 @@
 # JP Voice Workbench
 
-基于个人日常使用需求开发的本地日语音频工作台：日语转录、日中翻译、专名纠错、译名统一与字幕复核。计划使用 Electron、React、TypeScript 和 Python 本地服务接入 faster-whisper/CTranslate2。
+本地优先的日语音频工作台，规划支持日语转录、日中翻译、专名纠错、译名统一与字幕复核。需求和阶段验收以 [AGENT.md](AGENT.md) 为准，开发约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，实际验收见 [STATUS.md](STATUS.md)。
 
-## 当前状态
+## 当前范围
 
-项目处于工程初始化阶段，尚无可启动的桌面应用或 ASR 服务。已完成范围和验证结果见 [STATUS.md](STATUS.md)，产品需求与分阶段验收以 [AGENT.md](AGENT.md) 为准。
+本轮仅实现 Phase 0 和 Phase 1。模型资产检查只判断文件是否存在，不代表模型可推理。桌面、音频处理、ASR、词表和字幕功能尚未实现。中文法律文本脱敏与 mask 是可选迁移方向。
 
-中文法律文本脱敏属于可讨论的技术迁移方向，可选演示不影响日语工作台交付。
+## 环境与依赖
 
-## 仓库入口
+已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端当前只安装 FastAPI、Pydantic、Uvicorn 和检查工具；faster-whisper/CTranslate2 等在 Phase 3 引入，不提前安装模型推理依赖。
 
-- [AGENT.md](AGENT.md)：需求、架构、接口和阶段验收。
-- [CONTRIBUTING.md](CONTRIBUTING.md)：Git、环境、提交与开发检查约定。
-- [STATUS.md](STATUS.md)：实际进展、验证结果和未完成项。
-- `scripts/check_repository.py`：不依赖第三方包的仓库基础检查。
-
-## 当前可运行的检查
-
-在项目根目录执行：
+项目使用 `.venv`。有 Python 3.10 和 pip 时，在项目根目录执行（PowerShell）：
 
 ```powershell
-git status --short
-python scripts/check_repository.py
+py -3.10 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --require-hashes -r backend/requirements.txt
+.\.venv\Scripts\Activate.ps1
 ```
 
-检查需要 Git 与 Python 3.10+。它只验证工程和提交基础，不代表已经运行模型、通过应用测试或完成打包。
+也可使用 uv（本机实际采用此方式；uv 创建的环境默认不带 pip）：
 
-## 开发环境
+```powershell
+uv python install 3.10
+uv venv --python 3.10 .venv
+uv pip sync --python .venv/Scripts/python.exe backend/requirements.txt
+uv pip check --python .venv/Scripts/python.exe
+```
 
-前端计划使用 Node.js 20+ 与 pnpm；Python 优先 3.10，并在项目 `.venv` 内安装依赖。正式初始化业务模块时，记录实际兼容版本并提交相应依赖清单和锁文件。
+[requirements.in](backend/requirements.in) 声明直接依赖与用途，[requirements.txt](backend/requirements.txt) 锁定全部传递依赖及哈希。修改依赖后重新生成并验收：
 
-当前机器的工具核对结果见 STATUS。桌面启动、后端安装、模型准备和打包命令将在对应模块实现并实际验证后补充。
+```powershell
+uv pip compile backend/requirements.in --python .venv/Scripts/python.exe --generate-hashes --output-file backend/requirements.txt
+```
+
+## 模型准备
+
+将 [manifest.example.json](examples/manifest.example.json) 复制到本地 `models/manifest.json`，修改其中路径。相对路径统一以项目根目录解析，也支持外部绝对路径；本机路径只保存在被忽略的本地清单。不要猜测不明模型的身份，不自动下载模型，不改动旧项目资产。
+
+每个 CT2 模型检查 `model.bin`、`config.json`、`tokenizer.json`、`preprocessor_config.json`、`vocabulary.json`；VAD 检查 ONNX 和 metadata 文件。
+
+```powershell
+New-Item -ItemType Directory -Force models | Out-Null
+Copy-Item examples/manifest.example.json models/manifest.json
+python scripts/verify_models.py
+```
+
+已有本地清单时不要覆盖，可先人工编辑。也可传 `--manifest <路径>`。脚本退出码 0 表示文件齐全；1 表示缺失/清单错误，并逐项打印路径。当前默认模型路径缺失属于真实环境结果，不阻止健康服务或无模型测试启动。
+
+## 开发检查
+
+激活 `.venv` 后在项目根目录执行：
+
+```powershell
+python scripts/check_repository.py
+python -m ruff check backend scripts
+python -m ruff format --check backend scripts
+python -m pytest -q
+```
+
+若本机旧的系统 pytest 临时目录权限异常，可指定项目内临时目录，不修改系统权限：
+
+```powershell
+New-Item -ItemType Directory -Force data/tmp | Out-Null
+$env:TMPDIR = (Resolve-Path data/tmp).Path
+python -m pytest -q
+```
+
+CI 在 Windows/Linux 的 Python 3.10 上执行仓库、静态、格式和无模型测试，不下载模型或使用私人音频。模型文件存在检查不替代加载模型、GPU 或业务验收。
 
 ## 本地数据
 
-模型放在本地 `models/` 或外部模型目录，用户词表、临时音频等本地数据放在被忽略的 `data/`。本地字幕/导出放在被忽略的 `outputs/` 或 `exports/`，不把私人文本复制到源码或文档中。
-
-Git 只记录源码、测试、文档、依赖和无敏感信息的配置示例。可共享的合成文本/规则放在 `tests/fixtures/` 或 `examples/`；测试音频按需生成，不提交私人媒体和模型权重。
+模型、用户词表、音视频、字幕结果、数据库、日志、密钥和本地配置均不提交 Git。测试占位模型仅用临时空文件验证文件检查逻辑，不作为推理或准确率验收。共享合成数据和配置只放 `tests/fixtures/` 或 `examples/`。

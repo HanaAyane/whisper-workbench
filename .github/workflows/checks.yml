@@ -1,0 +1,28 @@
+name: Python 检查
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: 安装锁定依赖
+        run: python -m pip install --require-hashes -r backend/requirements.txt
+      - name: 仓库基础检查
+        run: python scripts/check_repository.py
+      - name: 静态检查
+        run: python -m ruff check backend scripts
+      - name: 格式检查
+        run: python -m ruff format --check backend scripts
+      - name: 无模型单元测试
+        run: python -m pytest -q
