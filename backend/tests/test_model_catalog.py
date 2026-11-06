@@ -7,36 +7,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from app.model_catalog import MODEL_FILES, inspect_manifest
+from app.model_catalog import inspect_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-@pytest.fixture
-def catalog(tmp_path):
-    model_dir = tmp_path / "model"
-    model_dir.mkdir()
-    for name in MODEL_FILES:
-        (model_dir / name).touch()
-    (tmp_path / "vad.onnx").touch()
-    (tmp_path / "vad.json").write_text("{}", encoding="utf-8")
-    data = {
-        "models": [
-            {
-                "id": "synthetic-test",
-                "type": "asr",
-                "label": "仅供文件校验测试",
-                "path": "model",
-                "language": "ja",
-                "task": "transcribe",
-                "compute_type": "int8",
-            }
-        ],
-        "vad": {"model_path": "vad.onnx", "metadata_path": "vad.json"},
-    }
-    manifest = tmp_path / "manifest.json"
-    manifest.write_text(json.dumps(data), encoding="utf-8")
-    return tmp_path, manifest, data
 
 
 def test_complete_and_missing_files(catalog):
@@ -74,6 +47,21 @@ def test_duplicate_and_invalid_model(catalog):
     report = inspect_manifest(manifest, root)
     assert report["models_ok"] is False
     assert len(report["errors"]) == 2
+
+
+def test_unreadable_model_files_are_reported(catalog, monkeypatch):
+    root, manifest, _ = catalog
+    original = Path.is_file
+
+    def deny_model(path):
+        if path.name == "model.bin":
+            raise PermissionError("合成权限故障")
+        return original(path)
+
+    monkeypatch.setattr(Path, "is_file", deny_model)
+    report = inspect_manifest(manifest, root)
+    assert report["models_ok"] is False
+    assert "无法检查文件" in report["models"][0]["files"][0]["error"]
 
 
 def test_cli_reports_missing_assets(tmp_path):

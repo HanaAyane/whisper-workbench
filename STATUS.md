@@ -1,6 +1,6 @@
 # 项目状态
 
-更新日期：2026-11-06（Asia/Shanghai）。
+更新日期：2026-11-07（Asia/Shanghai）。
 
 ## 当前范围
 
@@ -11,7 +11,7 @@
 | Phase | 状态 | 测试/验收 | 备注 |
 | --- | --- | --- | --- |
 | 0 项目初始化 | 完成 | 基础检查、Ruff、8 个文件校验测试、依赖兼容检查通过；模型检查按实际缺失返回 1 | 独立仓库、文档、忽略规则、Python 3.10 `.venv`、锁定依赖、模型检查脚本均已准备；缺模型明确报告路径，不下载 |
-| 1 Python Sidecar | 未开始 | 不适用 | 下一阶段在 Phase 0 提交后开始 |
+| 1 Python Sidecar | 完成 | backend 目录 pytest：32 passed；实际 Uvicorn + curl、鉴权、CORS、监听地址验收通过 | 随机 token、受限 CORS、配置、health/models、错误路径及测试已实现；只监听 127.0.0.1 |
 | 2 音频处理 | 未开始 | 不适用 | 尚无解码、VAD 或切块实现 |
 | 3 ASR/翻译 | 未开始 | 不适用 | 未加载模型或转录样本 |
 | 4 术语引擎 | 未开始 | 不适用 | 尚无实现 |
@@ -39,12 +39,23 @@
 - `uv pip check --python .venv/Scripts/python.exe`：23 个包兼容。安装命令末尾曾尝试 `python -m pip --version`，因 uv 环境默认无 pip 返回 1；依赖安装已成功，后续使用 uv 检查。
 - 已建立 Windows/Linux Python 3.10 CI，实际远端运行尚未发生；本地相同检查通过。
 
+## Phase 1 验收记录
+
+- Phase 0 已独立提交 `011b7c1`（`chore: complete phase 0 environment and model verification`），开始 Phase 1 前再次阅读状态并确认工作区干净。
+- FastAPI 已实现随机 token、受限 CORS 和 health/models API。显式 `SIDECAR_TOKEN=dev` 仅用于固定示例验收，token 不通过 HTTP 返回。配置支持项目根、模型目录、清单、临时目录、设备和计算类型的环境覆盖。
+- 在 backend 目录运行 `SIDECAR_TOKEN=dev ../.venv/Scripts/python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765`，随后执行 `curl -H "X-Sidecar-Token: dev" http://127.0.0.1:8765/api/health`：HTTP 200，返回 `{"status":"ok","version":"0.1.0","models_ok":false}`。
+- 实际 HTTP 的 `/api/models` 返回两个默认模型的缺失状态；无 token 返回 401，非法 Origin 返回 403；允许来源的 401 保留 CORS 响应头。`Get-NetTCPConnection` 确认只监听 `127.0.0.1:8765`。验收进程完成后关闭。
+- backend 目录执行 `TMPDIR=<项目>/data/tmp ../.venv/Scripts/python.exe -m pytest -q`：32 passed，1 条第三方弃用警告（Starlette 0.46.2 的 TestClient 引用 AnyIO 已弃用的 BlockingPortal 别名），不影响结果，未隐藏警告。
+- 测试覆盖模型正常/缺失/损坏、随机 token 轮换、鉴权、CORS/预检、环境配置和错误路径。独立审查发现非法路径导致 500、合法来源 401 缺 CORS 两处问题，均已修复并增加回归；非法路径和权限异常现返回中文检查结果。
+- Ruff 静态/格式、仓库基础和23个依赖兼容检查通过；没有执行真实 ASR、GPU 或远端 CI。README 已同步安装、启动、token、模型和检查命令。
+- 阶段提交前按明确路径暂存并审阅差异；本地提交通过 `git log --oneline` 查看。
+
 ## 环境故障与处理
 
 首次 pytest 在测试 setup 阶段遇到系统临时目录权限问题，8 个用例未执行。改用项目内的 `data/tmp` 作为 TMPDIR 后，8 个测试通过。复现命令见 README。
 
 ## 遗留与下一步
 
-- Phase 1 待实现；Phase 2 及以后不在本轮范围。
+- Phase 0、Phase 1 已完成；Phase 2 及以后未开始，不在本轮范围。
 - 模型文件仍缺失；有确认的模型身份/目录后编辑本地 manifest，重新运行校验。本轮不自动下载权重、不运行推理。
 - 未创建远程仓库，未推送、发布或打标签。

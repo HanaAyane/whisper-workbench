@@ -16,12 +16,17 @@ MODEL_FILES = (
 
 
 def _resolve(root: Path, value: str) -> Path:
+    if "\x00" in value:
+        raise ValueError("路径不能包含空字符。")
     path = Path(value).expanduser()
     return (root / path).resolve() if not path.is_absolute() else path.resolve()
 
 
 def _check_file(path: Path) -> dict[str, Any]:
-    return {"path": str(path), "ok": path.is_file()}
+    try:
+        return {"path": str(path), "ok": path.is_file()}
+    except (OSError, ValueError) as error:
+        return {"path": str(path), "ok": False, "error": f"无法检查文件：{error}"}
 
 
 def inspect_manifest(manifest_path: Path, project_root: Path) -> dict[str, Any]:
@@ -66,11 +71,21 @@ def inspect_manifest(manifest_path: Path, project_root: Path) -> dict[str, Any]:
             ("translate", "translate"),
         }:
             result["errors"].append(f"模型 {model['id']} 的 type/task 组合不支持。")
-        directory = _resolve(project_root, model["path"])
-        checks = [_check_file(directory / name) for name in MODEL_FILES]
-        result["models"].append(
-            {**model, "path": str(directory), "ok": all(c["ok"] for c in checks), "files": checks}
-        )
+        try:
+            directory = _resolve(project_root, model["path"])
+            checks = [_check_file(directory / name) for name in MODEL_FILES]
+            result["models"].append(
+                {
+                    **model,
+                    "path": str(directory),
+                    "ok": all(c["ok"] for c in checks),
+                    "files": checks,
+                }
+            )
+        except (OSError, ValueError) as error:
+            message = f"模型 {model['id']} 路径无效或无法访问：{model['path']!r}（{error}）"
+            result["errors"].append(message)
+            result["models"].append({**model, "ok": False, "files": [], "error": message})
 
     vad = manifest.get("vad")
     if not isinstance(vad, dict) or any(
@@ -79,9 +94,14 @@ def inspect_manifest(manifest_path: Path, project_root: Path) -> dict[str, Any]:
     ):
         result["errors"].append("模型清单 vad 必须包含非空 model_path 和 metadata_path。")
     else:
-        checks = [
-            _check_file(_resolve(project_root, vad[key])) for key in ("model_path", "metadata_path")
-        ]
+        checks = []
+        for key in ("model_path", "metadata_path"):
+            try:
+                checks.append(_check_file(_resolve(project_root, vad[key])))
+            except (OSError, ValueError) as error:
+                message = f"VAD 路径无效或无法访问：{vad[key]!r}（{error}）"
+                result["errors"].append(message)
+                checks.append({"path": vad[key], "ok": False, "error": message})
         result["vad"] = {"ok": all(c["ok"] for c in checks), "files": checks}
 
     result["models_ok"] = bool(
