@@ -155,7 +155,7 @@ Copy-Item .env.example .env
 python scripts/smoke_translate.py --audio "你的日语样本.mp3" --model whisper-ja-1.5B --out data/review/样本_日中双语.srt
 ```
 
-输出每条字幕包含「日语原文 + 中文译文」两行，UTF-8 SRT，便于人工核对。未配置 Key 时脚本以中文错误退出，不会加载模型或外发任何内容。
+输出每条字幕包含「日语原文 + 中文译文」两行，UTF-8 SRT，便于人工核对。未配置 Key 时脚本以中文错误退出，不会加载模型或外发任何内容。真实 144.9 秒样本已验证：ASR 17 段 → DeepSeek 17 段译文，双语 SRT 17 块全部非空（验收记录见 STATUS）。
 
 ## 开发检查
 

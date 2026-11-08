@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-本轮完成 Phase 3 ASR 接入（3.1–3.5），并按用户 2026-11-08 的需求变更接入 DeepSeek 文本翻译。日语转录主链路已打通；DeepSeek 翻译代码与 mock 测试完成，真实 API 验收待配置 Key。桌面 UI、术语表与字幕编辑仍是后续主线。
+本轮完成 Phase 3 ASR 接入（3.1–3.5），并按用户 2026-11-08 的需求变更接入 DeepSeek 文本翻译。日语转录主链路与真实 DeepSeek 翻译均已验收通过。桌面 UI、术语表与字幕编辑仍是后续主线。
 
 ## 阶段进展
 
@@ -13,7 +13,7 @@
 | 0 项目初始化 | 完成 | 基础检查、Ruff、8 个文件校验测试、依赖兼容检查通过；模型检查按实际缺失返回 1 | 独立仓库、文档、忽略规则、Python 3.10 `.venv`、锁定依赖、模型检查脚本均已准备；缺模型明确报告路径，不下载 |
 | 1 Python Sidecar | 完成 | backend 目录 pytest：32 passed；实际 Uvicorn + curl、鉴权、CORS、监听地址验收通过 | 随机 token、受限 CORS、配置、health/models、错误路径及测试已实现；只监听 127.0.0.1 |
 | 2 音频处理 | 完成 | 音频/全量 pytest 通过；Ruff、仓库基础检查通过；6 种格式实际解码与本地 ONNX 只读烟雾通过 | 16 kHz 单声道 float32 解码、ONNX 优先/能量回退、≤30 秒切块、任务临时目录清理；`[V1]` waveform peaks 未做 |
-| 3 ASR/翻译 | 完成（3.1–3.5；DeepSeek 真实翻译待 Key） | 全量 pytest 通过；真实日语样本 30 秒冒烟与真实 API 任务通过；DeepSeek 翻译 mock 测试通过，真实 API 待配置 Key；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs、smoke 脚本已实现；翻译改用 DeepSeek（仅文本外发），真实翻译验收待 Key |
+| 3 ASR/翻译 | 完成（3.1–3.5） | 全量 pytest 91 passed；真实日语样本 30 秒冒烟与真实 API 任务通过；完整 144.9 秒样本真实 DeepSeek 翻译生成 17 段双语 SRT；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs、DeepSeek 翻译与 smoke 脚本已实现；翻译仅文本外发，音频本地 |
 | 4 术语引擎 | 未开始 | 不适用 | 尚无实现 |
 | 5 Electron/React | 未开始 | 不适用 | 尚无前端项目 |
 | 6 队列/持久化 | 未开始 | 不适用 | 按实际需求推进 |
@@ -78,9 +78,10 @@
 - Ruff 静态/格式、仓库基础检查通过；未做批次并发、取消、WebSocket、持久化或打包验收。
 - 翻译模式：2026-11-08 需求变更，改为 **DeepSeek Chat Completions API**（`deepseek-flash`，`base_url=https://api.deepseek.com`），不再使用本地翻译模型。AGENT.md 已同步：音频始终本地；只有 `mode=translate` 时发送字幕文本，音频不上传；API Key 只从 `.env`/环境变量读取。
 - `translation/deepseek.py`：按 20 段/6000 字符分批，JSON 模式要求 id 对齐；处理 401/402/429、超时、格式错误并返回中文错误；不记录正文或 Key。`JobRequest.translation` 为 `{provider:"deepseek", model:"deepseek-flash"}`。
-- `.env.example` 已提交（无密钥），本地 `.env` 已创建但**用户尚未填写 DEEPSEEK_API_KEY**；因此真实 DeepSeek 请求与中日双语字幕尚未验收，不能写成已通过。
+- `.env.example` 已提交（无密钥）；本地 `.env` 由用户填写 `DEEPSEEK_API_KEY`，该文件被 Git 忽略，未读取或记录 Key 内容。
 - 新增 `tests/test_translation.py`（MockTransport，不发真实网络）覆盖环境变量/.env、缺 Key、分批、乱序 id、重试、401、格式错误；`test_jobs.py` 增加翻译管线注入测试。
 - Mock DeepSeek 端到端：用本地 HTTP mock 服务跑 30 秒样本，4 段全部生成“日语原文 + 中文译文”双语 SRT；仅验证脚本/客户端/字幕链路，不代表真实 DeepSeek 翻译质量。
+- **真实 DeepSeek 翻译验收**：用户填写本地 `.env` 后，完整 144.9 秒 MP3 真实运行 `scripts/smoke_translate.py`；ASR 17 段 → DeepSeek `deepseek-flash` 单批返回 17 段译文。双语 SRT 共 17 块，每块 4 行（序号/时间/日语/中文），日语 476 字符、中文 371 字符，所有译文非空且无一段与原文相同；首段 `00:00:00,840 → 00:00:09,160`，末段 `00:02:15,280 → 00:02:23,220`。字幕保存在 `data/review/`（Git 忽略），未提交原文/译文；真实翻译质量由用户人工复核。
 
 ## 环境故障与处理
 
@@ -89,7 +90,7 @@
 ## 遗留与下一步
 
 - Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）已完成；Phase 4 及以后未开始。
-- ASR 模型可用；翻译已改为 DeepSeek，需在本地 `.env` 填写 `DEEPSEEK_API_KEY` 后运行 `scripts/smoke_translate.py` 做真实日中翻译验收。
+- ASR 与 DeepSeek 翻译均已真实跑通；双语字幕留在 `data/review/` 供人工复核。翻译质量与专名一致性仍需按真实样本继续评估。
 - 本地 manifest 使用用户确认的绝对路径；换机器时需编辑本地被忽略的 `models/manifest.json`。
 - Phase 2 未实现 `[V1]` waveform peaks；Phase 3 未实现批量任务、流式转写、取消、WebSocket 与持久化。
 - 未创建远程仓库，未推送、发布或打标签。
