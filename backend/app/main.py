@@ -18,14 +18,20 @@ from app.api.jobs import router as jobs_router
 from app.api.models import router as models_router
 from app.config import Settings
 from app.jobs.manager import JobManager, JobRunner
+from app.translation.deepseek import DeepSeekTranslator
 
 logger = logging.getLogger("uvicorn.error")
 LOCAL_ORIGIN = r"http://127\.0\.0\.1(?::[0-9]+)?"
 
 
-def create_app(settings: Settings | None = None, *, job_runner: JobRunner | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    job_runner: JobRunner | None = None,
+    translator: DeepSeekTranslator | None = None,
+) -> FastAPI:
     config = settings if settings is not None else Settings.from_env()
-    job_manager = JobManager(config, job_runner=job_runner)
+    job_manager = JobManager(config, job_runner=job_runner, translator=translator)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):

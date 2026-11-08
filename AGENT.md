@@ -72,12 +72,12 @@
 - Electron 桌面应用可启动；
 - 麦克风录音或拖入音频/视频；
 - 本地 faster-whisper / CTranslate2 模型转写；
-- 日语转录 + 可选日中翻译；
+- 日语转录 + 可选日中翻译（本地 ASR；翻译默认通过 DeepSeek API，仅发送字幕文本，音频不上传）；
 - VAD 分段，长音频不一次性爆显存；
 - 术语表（CSV/JSON 导入导出）、精确词表/别名匹配及 `correct/translate/keep` 策略；
 - 字幕编辑器：区分原文纠错与译名统一，高亮命中、接受/拒绝替换，保留模型原始结果；
 - 导出 SRT / VTT / LRC / TXT；
-- 本地运行，不上传音频/文本；
+- 本地运行；音频始终本地处理、不上传；启用翻译时仅将字幕文本发送到用户配置的 DeepSeek API；
 - pytest 单元测试 + 一个端到端 demo；
 - README + 实际功能验收记录 + 截图/录屏脚本。
 
@@ -99,7 +99,7 @@
 - 不做模型训练/微调（本项目是推理应用）；
 - 不做法律意见、合规判断、真实客户数据处理；
 - 不把本项目包装成“法律 AI 产品”；
-- 不默认录音上传，不接入第三方分析/遥测。
+- 不默认录音上传，不接入第三方分析/遥测；DeepSeek 翻译是用户显式启用的文本外发功能，不是默认遥测。
 
 ---
 
@@ -134,7 +134,7 @@
 ### 3.3 模型 / 音频工具
 
 - 主 ASR 模型：`whisper-ja-1.5B` 的 CT2 版本（本地目录）
-- 翻译模型：`chickenrice0721/whisper-large-v2-translate-zh-v0.2-st-ct2` 的 CT2 版本（本地目录）
+- 翻译：DeepSeek Chat Completions API（默认 `deepseek-flash`，`base_url=https://api.deepseek.com`），通过 `DEEPSEEK_API_KEY` 显式启用；只发送字幕文本，不发送音频。原本地翻译模型 `chickenrice0721/whisper-large-v2-translate-zh-v0.2-st-ct2` 不再是首版依赖，可在未来作为离线备选。
 - VAD：复用 `whisper_vad.onnx` + `whisper_vad_metadata.json`
 - `ffmpeg` 可执行文件（优先系统安装，打包时可带 `ffmpeg-static` 或平台 ffmpeg）
 - 模型目录不提交 Git，通过 `settings.json` / 环境变量指定
@@ -143,7 +143,9 @@
 
 - Electron renderer **不能直接访问 Node/文件系统**；必须通过 preload 的 contextBridge 暴露受限 API。
 - Python sidecar 只监听 `127.0.0.1`，启动时生成随机 token，Electron 通过 header 传入。
-- 所有音频/文本处理在本地完成；没有网络请求（模型下载是显式操作，单独提示）。
+- 音频解码、VAD 与 ASR 全部在本地完成，音频文件不上传。
+- 默认不联网；只有用户显式选择 DeepSeek 翻译时，才将`待翻译字幕文本`发送到 `https://api.deepseek.com`。请求前须在界面/日志中明确提示外发范围；API Key 只从本地 `.env` 或环境变量读取，不写入日志、不提交 Git。
+- 模型下载是显式操作，单独提示。
 
 ### 3.5 Git 与开发工程基线
 
@@ -329,7 +331,10 @@ jp-voice-workbench/
   "input_path": "C:/data/demo/sample.wav",
   "mode": "transcribe",
   "asr_model_id": "whisper-ja-1.5B",
-  "translate_model_id": null,
+  "translation": {
+    "provider": "deepseek",
+    "model": "deepseek-flash"
+  },
   "language": "ja",
   "glossary_id": "default",
   "export_formats": ["srt", "vtt"],
@@ -637,10 +642,11 @@ pytest -q
 - [ ] 7.3 术语命中：区分日语原文纠错与中文译名统一，高亮命中范围，显示替换前后内容；逐条接受/拒绝。编辑改变文本后重新计算该字段命中，避免使用失效的位置。
 - [ ] 7.4 导出前确认：选择格式、输出目录、覆盖策略；调用导出接口读取当前保存的编辑副本。推理阶段如输出初始字幕，只作为模型原始结果，不覆盖人工复核后的文件。
 - [ ] 7.5 隐私：
-  - 默认不联网；
+  - 默认不联网；音频始终本地处理、不上传；
+  - 启用 DeepSeek 翻译时，仅将待翻译字幕文本发送到 `https://api.deepseek.com`；界面必须明确提示文本外发范围，API Key 只从本地 `.env`/环境变量读取；
   - 临时音频任务结束即删除；
-  - 日志不含完整原文（只记录长度/段数）；
-  - 设置页显示“本地处理，不上传”。
+  - 日志不含完整原文/译文（只记录长度/段数），不记录 API Key；
+  - 设置页显示“本地转录；翻译可选择 DeepSeek，文本将发送到云端”。
 - [ ] 7.6 `[STRETCH]` 文本 input tab：粘贴文本，复用词表/规则匹配与人工确认流程。如另行实现 `mask` 迁移演示，只用合成数据并标注覆盖范围；未实现时仅在文档中讨论扩展可能，不影响日语工作台验收。
 
 **验收**：

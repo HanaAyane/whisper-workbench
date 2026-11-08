@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-当前已完成 Phase 0、Phase 1、Phase 2 和 Phase 3（3.1–3.5）：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块、任务临时目录清理，以及本地 faster-whisper ASR 与任务状态机；真实日语样本的 30 秒片段与完整长音频转写验收已通过。模型资产检查只判断文件是否存在，不代表 ASR 模型可推理。桌面 UI、词表和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
+当前已完成 Phase 0、Phase 1、Phase 2 和 Phase 3（3.1–3.5）：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块、任务临时目录清理、本地 faster-whisper ASR，以及 **DeepSeek 文本翻译接入**。ASR 使用本地模型，音频始终不上传；启用翻译时仅字幕文本发送到 DeepSeek。真实日语样本的 30 秒片段与完整长音频转写验收已通过。桌面 UI、词表和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
 
 ## 环境与依赖
 
@@ -102,7 +102,7 @@ python scripts/make_demo_assets.py --out data/demo
 
 `app.asr.model_manager.ModelManager` 读取本地 `models/manifest.json`，校验必需文件后按 `device`（`auto/cpu/cuda`）与模型 `compute_type` 加载 `faster_whisper.WhisperModel`，并设置 `local_files_only=True`，不会下载权重。模型按 `(id, device, compute_type)` 缓存，`unload()` 释放。设备自动选择优先 CUDA；不支持的计算类型会返回中文错误并列出可用值。
 
-`app.asr.whisper_backend.recognize_chunks()` 对 Phase 2 产生的 ≤30 秒块逐块推理，把块内时间戳换算为全局毫秒并裁剪到块边界；`translate_spans()` 为翻译模型保留逐段音频翻译接口。ASR 模型已在 RTX 4070（cuda/bfloat16）完成加载与真实日语样本验收（30 秒片段及完整 144.9 秒长音频）；翻译模型缺失时翻译模式会明确报错。
+`app.asr.whisper_backend.recognize_chunks()` 对 Phase 2 产生的 ≤30 秒块逐块推理，把块内时间戳换算为全局毫秒并裁剪到块边界。ASR 模型已在 RTX 4070（cuda/bfloat16）完成加载与真实日语样本验收（30 秒片段及完整 144.9 秒长音频）。
 
 任务接口（内存态，重启后不保留；持久化/取消/WebSocket 留待 Phase 6）：
 
@@ -120,6 +120,42 @@ python scripts/smoke_transcribe.py --audio data/demo/sample.wav --model whisper-
 ```
 
 模型与设备会打印到终端；输出默认写在音频同目录的 `.srt`。合成正弦波在真实模型上返回 0 段属正常结果，**不能**作为日语转写验收。
+
+## DeepSeek 翻译（Phase 3）
+
+翻译通过 DeepSeek Chat Completions API 完成，默认 `model=deepseek-flash`、`base_url=https://api.deepseek.com`。**只发送待翻译的字幕文本，不发送音频或文件**；这是项目中唯一允许的外网请求，且仅在任务 `mode=translate` 时发生。
+
+### 配置 Key
+
+不要把 Key 写进代码或提交 Git。复制模板并填写本地 `.env`（已被 `.gitignore` 忽略）：
+
+```powershell
+Copy-Item .env.example .env
+# 编辑 .env，填写 DEEPSEEK_API_KEY=...
+```
+
+也支持系统环境变量 `DEEPSEEK_API_KEY`（优先级高于 `.env`），以及 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 覆盖。`GET /api/health` 不会检查 Key，也不会发起网络请求。
+
+### 接口与行为
+
+`JobRequest` 的翻译选项为：
+
+```json
+{
+  "mode": "translate",
+  "translation": {"provider": "deepseek", "model": "deepseek-flash"}
+}
+```
+
+`app.translation.deepseek.DeepSeekTranslator` 会按 20 段 / 6000 字符分批，用 JSON 模式要求返回与输入 id 一一对应的译文；401/402/429、超时和格式错误都有中文错误。任务 `segments[i].raw_translation` 与 `translation` 保存译文，`raw_text/text` 保留日语原文；不会覆盖原文。`mode=transcribe` 不联网、不需要 Key。
+
+### 双语字幕冒烟
+
+```powershell
+python scripts/smoke_translate.py --audio "你的日语样本.mp3" --model whisper-ja-1.5B --out data/review/样本_日中双语.srt
+```
+
+输出每条字幕包含「日语原文 + 中文译文」两行，UTF-8 SRT，便于人工核对。未配置 Key 时脚本以中文错误退出，不会加载模型或外发任何内容。
 
 ## 开发检查
 
@@ -144,4 +180,6 @@ CI 在 Windows/Linux 的 Python 3.10 上执行仓库、静态、格式和无模�
 
 ## 本地数据
 
-模型、用户词表、音视频、字幕结果、数据库、日志、密钥和本地配置均不提交 Git。测试占位模型仅用临时空文件验证文件检查逻辑，不作为推理或准确率验收。共享合成数据和配置只放 `tests/fixtures/` 或 `examples/`。
+模型、用户词表、音视频、字幕结果、数据库、日志、密钥和本地配置均不提交 Git。`.env` 与 `models/manifest.json` 都是本地配置，仓库只保留无密钥的 `.env.example` 和示例 manifest。测试占位模型仅用临时空文件验证文件检查逻辑，不作为推理或准确率验收。共享合成数据和配置只放 `tests/fixtures/` 或 `examples/`。
+
+隐私边界：音频解码、VAD 与 ASR 全部本地；启用 DeepSeek 翻译时，仅字幕文本会发送到 `https://api.deepseek.com`，音频不上传。默认的 `mode=transcribe` 不联网。

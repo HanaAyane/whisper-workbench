@@ -5,8 +5,11 @@ import wave
 
 import numpy as np
 import pytest
+from app.asr.whisper_backend import RecognitionResult, RecognizedSpan
+from app.audio.chunks import SpeechSegment
 from app.config import Settings
-from app.jobs.schemas import Segment
+from app.jobs.manager import JobManager
+from app.jobs.schemas import JobRequest, Segment
 from app.main import create_app
 from fastapi.testclient import TestClient
 
@@ -122,14 +125,15 @@ def test_create_rejects_unknown_model(settings, tmp_path):
     assert "missing-model" in response.json()["detail"]
 
 
-def test_translate_requires_translate_model(settings, tmp_path):
+def test_translate_requires_deepseek_key(settings, tmp_path, monkeypatch):
     audio = _write_wav(tmp_path / "sample.wav")
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     application = create_app(settings, job_runner=_segments)
     payload = {**_payload(audio), "mode": "translate"}
     with TestClient(application) as client:
         response = client.post("/api/jobs", json=payload, headers=HEADERS)
     assert response.status_code == 400
-    assert "translate_model_id" in response.json()["detail"]
+    assert "DEEPSEEK_API_KEY" in response.json()["detail"]
 
 
 def test_unknown_job_returns_404(settings):
@@ -161,3 +165,51 @@ def test_cors_preflight_allows_post(settings):
         )
     assert response.status_code == 200
     assert "POST" in response.headers["access-control-allow-methods"]
+
+
+class _FakeTranslator:
+    def __init__(self):
+        self.calls = []
+
+    def translate_segments(self, texts, **_kwargs):
+        self.calls.append(list(texts))
+        return [f"译文{index}" for index in range(len(texts))]
+
+
+def test_translation_pipeline_uses_deepseek_translator(settings, tmp_path, monkeypatch):
+    audio = _write_wav(tmp_path / "sample.wav")
+
+    class Decoded:
+        samples = np.zeros(16000, dtype=np.float32)
+        duration_ms = 1000
+
+    class Loaded:
+        model = object()
+
+    translator = _FakeTranslator()
+    manager = JobManager(settings, translator=translator)
+    monkeypatch.setattr("app.jobs.manager.decode_audio", lambda _path: Decoded())
+    monkeypatch.setattr(
+        "app.jobs.manager.detect_speech", lambda *_args, **_kwargs: [SpeechSegment(0, 1000)]
+    )
+    monkeypatch.setattr(
+        "app.jobs.manager.merge_speech_segments",
+        lambda *_args, **_kwargs: [SpeechSegment(0, 1000)],
+    )
+    monkeypatch.setattr(manager.model_manager, "load", lambda *_args, **_kwargs: Loaded())
+    monkeypatch.setattr(
+        "app.jobs.manager.recognize_chunks",
+        lambda *_args, **_kwargs: RecognitionResult(
+            spans=[RecognizedSpan(0, 1000, "こんにちは")], duration_after_vad_ms=1000
+        ),
+    )
+
+    request = JobRequest(input_path=str(audio), mode="translate", asr_model_id="synthetic-test")
+    segments = manager._run_pipeline(request, lambda *_args: None)
+    manager.close()
+
+    assert translator.calls == [["こんにちは"]]
+    assert len(segments) == 1
+    assert segments[0].raw_text == "こんにちは"
+    assert segments[0].raw_translation == "译文0"
+    assert segments[0].translation == "译文0"

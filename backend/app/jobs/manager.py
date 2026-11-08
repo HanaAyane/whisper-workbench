@@ -6,17 +6,22 @@ import logging
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 
 from app.asr.model_manager import ModelManager
-from app.asr.whisper_backend import recognize_chunks, translate_spans
+from app.asr.whisper_backend import recognize_chunks
 from app.audio.chunks import merge_speech_segments
 from app.audio.decode import SUPPORTED_SUFFIXES, decode_audio
 from app.audio.vad import detect_speech
 from app.config import Settings
 from app.jobs.schemas import JobRequest, JobStatus, Segment
+from app.translation.deepseek import (
+    DeepSeekConfig,
+    DeepSeekTranslator,
+    TranslationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -45,11 +50,13 @@ class JobManager:
         settings: Settings,
         *,
         job_runner: JobRunner | None = None,
+        translator: DeepSeekTranslator | None = None,
         max_workers: int = 1,
     ) -> None:
         self.settings = settings
         self.model_manager = ModelManager(settings)
         self._runner = job_runner or self._run_pipeline
+        self._translator = translator
         self._jobs: dict[str, JobRecord] = {}
         self._lock = threading.RLock()
         self._counter = 0
@@ -63,9 +70,13 @@ class JobManager:
             raise ValueError(f"不支持的音频/视频格式：{path.suffix or '无扩展名'}。")
         self.model_manager.get_spec(request.asr_model_id, expected_type="asr")
         if request.mode == "translate":
-            if not request.translate_model_id:
-                raise ValueError("翻译模式必须指定 translate_model_id。")
-            self.model_manager.get_spec(request.translate_model_id, expected_type="translate")
+            if request.translation.provider != "deepseek":
+                raise ValueError("当前仅支持 deepseek 翻译服务。")
+            if self._translator is None:
+                try:
+                    self._translation_config(request)
+                except TranslationError as exc:
+                    raise ValueError(str(exc)) from exc
 
         with self._lock:
             self._counter += 1
@@ -163,16 +174,22 @@ class JobManager:
         )
         translations: list[str] | None = None
         if request.mode == "translate":
-            report(0.82, "asr", "正在生成中文译文")
-            translate_model = self.model_manager.load(
-                request.translate_model_id or "", expected_type="translate"
-            )
-            translations = translate_spans(
-                translate_model.model,
-                decoded.samples,
-                result.spans,
-                language=request.language,
-            )
+            report(0.82, "asr", "正在调用 DeepSeek 翻译")
+            translator = self._translator or DeepSeekTranslator(self._translation_config(request))
+            try:
+                translations = translator.translate_segments(
+                    [span.text for span in result.spans],
+                    source_language=request.language,
+                    target_language="zh",
+                    on_progress=lambda done, total: report(
+                        0.82 + 0.08 * done / max(total, 1),
+                        "asr",
+                        f"正在翻译 {done}/{total} 批",
+                    ),
+                )
+            finally:
+                if self._translator is None:
+                    translator.close()
         report(0.92, "glossary", "术语表处理将在 Phase 4 接入")
         report(0.98, "export", "导出将在 Phase 7 接入")
 
@@ -201,3 +218,9 @@ class JobManager:
             len(segments),
         )
         return segments
+
+    def _translation_config(self, request: JobRequest) -> DeepSeekConfig:
+        config = DeepSeekConfig.from_settings(self.settings)
+        if request.translation.model and request.translation.model != config.model:
+            config = replace(config, model=request.translation.model)
+        return config

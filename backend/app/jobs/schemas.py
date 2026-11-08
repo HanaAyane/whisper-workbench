@@ -14,11 +14,16 @@ class VadOptions(BaseModel):
     speech_pad_ms: int = Field(default=200, ge=0)
 
 
+class TranslationOptions(BaseModel):
+    provider: Literal["deepseek"] = "deepseek"
+    model: str | None = Field(default=None, min_length=1)
+
+
 class JobRequest(BaseModel):
     input_path: str = Field(min_length=1)
     mode: Literal["transcribe", "translate"] = "transcribe"
     asr_model_id: str = Field(min_length=1)
-    translate_model_id: str | None = None
+    translation: TranslationOptions = Field(default_factory=TranslationOptions)
     language: str = "ja"
     glossary_id: str | None = "default"
     export_formats: list[Literal["srt", "vtt", "lrc", "txt"]] = Field(default_factory=list)
