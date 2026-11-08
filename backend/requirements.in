@@ -12,6 +12,9 @@ onnxruntime>=1.21,<2
 faster-whisper==1.2.1
 ctranslate2>=4.5.0
 
+# Phase 4 术语多模式匹配；安装失败时使用纯 Python Trie 回退。
+pyahocorasick>=2.1,<3
+
 # 开发检查与 API 测试。
 httpx==0.28.1
 pytest==8.3.5

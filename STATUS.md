@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-本轮完成 Phase 3 ASR 接入（3.1–3.5），并按用户 2026-11-08 的需求变更接入 DeepSeek 文本翻译。日语转录主链路与真实 DeepSeek 翻译均已验收通过。桌面 UI、术语表与字幕编辑仍是后续主线。
+本轮完成 Phase 4 术语表与替换引擎（4.1–4.7 首版 exact 范围），并保留 Phase 3 的 ASR + DeepSeek 翻译能力。exact 匹配、别名/最长匹配/优先级、correct/translate/keep、CSV/JSON、预览 API 与任务集成已完成；regex/fuzzy/mask 未实现。桌面 UI 与字幕编辑仍是后续主线。
 
 ## 阶段进展
 
@@ -13,8 +13,8 @@
 | 0 项目初始化 | 完成 | 基础检查、Ruff、8 个文件校验测试、依赖兼容检查通过；模型检查按实际缺失返回 1 | 独立仓库、文档、忽略规则、Python 3.10 `.venv`、锁定依赖、模型检查脚本均已准备；缺模型明确报告路径，不下载 |
 | 1 Python Sidecar | 完成 | backend 目录 pytest：32 passed；实际 Uvicorn + curl、鉴权、CORS、监听地址验收通过 | 随机 token、受限 CORS、配置、health/models、错误路径及测试已实现；只监听 127.0.0.1 |
 | 2 音频处理 | 完成 | 音频/全量 pytest 通过；Ruff、仓库基础检查通过；6 种格式实际解码与本地 ONNX 只读烟雾通过 | 16 kHz 单声道 float32 解码、ONNX 优先/能量回退、≤30 秒切块、任务临时目录清理；`[V1]` waveform peaks 未做 |
-| 3 ASR/翻译 | 完成（3.1–3.5） | 全量 pytest 91 passed；真实日语样本 30 秒冒烟与真实 API 任务通过；完整 144.9 秒样本真实 DeepSeek 翻译生成 17 段双语 SRT；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs、DeepSeek 翻译与 smoke 脚本已实现；翻译仅文本外发，音频本地 |
-| 4 术语引擎 | 未开始 | 不适用 | 尚无实现 |
+| 3 ASR/翻译 | 完成（3.1–3.5） | 全量 pytest 111 passed；真实日语样本 30 秒冒烟与真实 API 任务通过；完整 144.9 秒样本真实 DeepSeek 翻译生成 17 段双语 SRT；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs、DeepSeek 翻译与 smoke 脚本已实现；翻译仅文本外发，音频本地 |
+| 4 术语引擎 | 完成（4.1–4.7 首版 exact） | pytest 111 passed；`scripts/glossary_demo.py` 实际输出命中与替换结果；API 导入/预览/导出通过 | exact 匹配、别名、最长匹配、priority、correct/translate/keep、字段隔离、CSV/JSON、预览与任务应用；regex/fuzzy/mask 属 V1/STRETCH 未实现 |
 | 5 Electron/React | 未开始 | 不适用 | 尚无前端项目 |
 | 6 队列/持久化 | 未开始 | 不适用 | 按实际需求推进 |
 | 7 编辑/导出/隐私 | 未开始 | 不适用 | 尚无实现 |
@@ -29,6 +29,7 @@
 - Phase 1 所需的 FastAPI 0.115.12、Pydantic 2.11.5、Uvicorn 0.34.2、HTTPX 0.28.1、pytest 8.3.5、Ruff 0.11.11 已预先安装。
 - Phase 2 新增 PyAV 15.1.0、NumPy 2.2.6、ONNX Runtime 1.23.2（含传递依赖）；全部 33 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。系统 `ffmpeg 8.1` 可用于生成测试样本，解码本身走 PyAV。
 - Phase 3 新增 faster-whisper 1.2.1、CTranslate2 4.8.5 及其传递依赖；全部 45 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。`ctranslate2.get_cuda_device_count()` 返回 1，支持 `bfloat16/float16/float32/int8*`。
+- Phase 4 新增 pyahocorasick 2.3.1（多模式匹配，失败时可回退纯 Python find）；全部 46 个依赖及哈希锁定，`uv pip check` 通过。
 - 打包依赖将在 Phase 9 安装；本轮不宣称 PyInstaller/安装包或 macOS 兼容性已验证。
 - DeepSeek 翻译复用已有 `httpx 0.28.1`，未新增第三方 SDK；`.env` 由项目内简单解析，未新增 python-dotenv。
 
@@ -83,14 +84,26 @@
 - Mock DeepSeek 端到端：用本地 HTTP mock 服务跑 30 秒样本，4 段全部生成“日语原文 + 中文译文”双语 SRT；仅验证脚本/客户端/字幕链路，不代表真实 DeepSeek 翻译质量。
 - **真实 DeepSeek 翻译验收**：用户填写本地 `.env` 后，完整 144.9 秒 MP3 真实运行 `scripts/smoke_translate.py`；ASR 17 段 → DeepSeek `deepseek-flash` 单批返回 17 段译文。双语 SRT 共 17 块，每块 4 行（序号/时间/日语/中文），日语 476 字符、中文 371 字符，所有译文非空且无一段与原文相同；首段 `00:00:00,840 → 00:00:09,160`，末段 `00:02:15,280 → 00:02:23,220`。字幕保存在 `data/review/`（Git 忽略），未提交原文/译文；真实翻译质量由用户人工复核。
 
+## Phase 4 验收记录
+
+- 在 `feat/glossary-engine` 分支实现 `glossary/models.py`、`normalizer.py`、`matcher.py`、`replacer.py`、`io.py`、`store.py`、`api/glossary.py` 与 `scripts/glossary_demo.py`，覆盖 4.1–4.7 首版 exact 范围；`regex`/`fuzzy`/`mask` 明确拒绝，不静默跳过。
+- 归一化：NFKC + 英文 casefold + 片假名折叠平假名；每个归一化字符保留原文索引映射，命中位置按原文 `start/end` 返回。已覆盖全角/半角、大小写、假名与中文/日文混排。
+- 匹配：`pyahocorasick 2.3.1` 多模式扫描（纯 Python `find` 回退），最长匹配优先、同长度按 priority 高者优先，重叠候选按左起贪心去重；禁用词条与不一致 field 不参与。
+- 替换：`correct` 仅作用 `text`，`translate` 仅作用 `translation`，`keep` 只高亮；`apply_to_segment()` 返回副本，只改 `text/translation` 并写入 `hits`，`raw_text/raw_translation` 保持首次模型输出。任务管线在 `glossary_id` 存在时自动应用词表。
+- CSV/JSON：表头 `source,variants,target,category,match_mode,regex,priority,field,policy,enabled`，variants 用 `|`；重复 source 合并，target/field/policy 冲突拒绝；CSV 往返解析一致。
+- API：`GET /api/glossary`、`POST /api/glossary/import`、`GET /api/glossary/{id}/export`、`POST /api/glossary/preview` 已用 TestClient 验证导入、预览、导出和 404。
+- `TMPDIR=<项目>/data/tmp .venv/Scripts/python.exe -m pytest backend/tests/test_glossary.py -q`：19 passed；全量 `pytest -q`：111 passed（1 条 Starlette 第三方弃用警告，未隐藏）。
+- `python scripts/glossary_demo.py --text "田中さんと渋谷で会いました" --glossary data/glossary/demo.json`：命中 2 条（`田中`→`田中太郎` correct、`さん` keep），输出 `田中太郎さんと渋谷で会いました`；`--field translation` 时只命中 `渋谷`→`涩谷`，验证字段隔离。
+- 词表 demo 使用合成 `examples/glossary.demo.json`，复制到被忽略的 `data/glossary/demo.json` 验收；未使用真实用户词表或私人文本。Ruff、仓库基础检查通过。
+
 ## 环境故障与处理
 
 首次 pytest 在测试 setup 阶段遇到系统临时目录权限问题，8 个用例未执行。改用项目内的 `data/tmp` 作为 TMPDIR 后，8 个测试通过。复现命令见 README。
 
 ## 遗留与下一步
 
-- Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）已完成；Phase 4 及以后未开始。
-- ASR 与 DeepSeek 翻译均已真实跑通；双语字幕留在 `data/review/` 供人工复核。翻译质量与专名一致性仍需按真实样本继续评估。
-- 本地 manifest 使用用户确认的绝对路径；换机器时需编辑本地被忽略的 `models/manifest.json`。
+- Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）、Phase 4（4.1–4.7 首版 exact）已完成；Phase 5 及以后未开始。
+- Phase 4 的 regex/fuzzy 属 V1、mask 属 STRETCH，均未实现；导入时会明确拒绝，不影响 exact 范围验收。
+- Phase 3 的 DeepSeek 翻译已真实跑通，真实翻译质量与专名一致性仍需按样本继续评估。
 - Phase 2 未实现 `[V1]` waveform peaks；Phase 3 未实现批量任务、流式转写、取消、WebSocket 与持久化。
 - 未创建远程仓库，未推送、发布或打标签。

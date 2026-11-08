@@ -16,6 +16,9 @@ from app.audio.chunks import merge_speech_segments
 from app.audio.decode import SUPPORTED_SUFFIXES, decode_audio
 from app.audio.vad import detect_speech
 from app.config import Settings
+from app.glossary.models import GlossaryNotFoundError
+from app.glossary.replacer import apply_to_segment
+from app.glossary.store import GlossaryStore
 from app.jobs.schemas import JobRequest, JobStatus, Segment
 from app.translation.deepseek import (
     DeepSeekConfig,
@@ -190,8 +193,6 @@ class JobManager:
             finally:
                 if self._translator is None:
                     translator.close()
-        report(0.92, "glossary", "术语表处理将在 Phase 4 接入")
-        report(0.98, "export", "导出将在 Phase 7 接入")
 
         segments: list[Segment] = []
         for index, span in enumerate(result.spans):
@@ -211,8 +212,21 @@ class JobManager:
                     translation=translation,
                 )
             )
+        if request.glossary_id:
+            try:
+                entries = GlossaryStore(self.settings).load(request.glossary_id)
+            except GlossaryNotFoundError:
+                report(0.94, "glossary", "未找到词表，跳过词表处理")
+            else:
+                if entries:
+                    report(0.92, "glossary", f"正在应用词表（{len(entries)} 条）")
+                    segments = [
+                        Segment(**apply_to_segment(segment.model_dump(), entries))
+                        for segment in segments
+                    ]
+        report(0.98, "export", "导出将在 Phase 7 接入")
         logger.info(
-            "任务转写完成：音频 %d 毫秒，语音 %d 毫秒，%d 段。",
+            "任务处理完成：音频 %d 毫秒，语音 %d 毫秒，%d 段。",
             decoded.duration_ms,
             result.duration_after_vad_ms,
             len(segments),

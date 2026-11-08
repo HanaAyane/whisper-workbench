@@ -8,6 +8,8 @@ import pytest
 from app.asr.whisper_backend import RecognitionResult, RecognizedSpan
 from app.audio.chunks import SpeechSegment
 from app.config import Settings
+from app.glossary.models import GlossaryEntry
+from app.glossary.store import GlossaryStore
 from app.jobs.manager import JobManager
 from app.jobs.schemas import JobRequest, Segment
 from app.main import create_app
@@ -213,3 +215,56 @@ def test_translation_pipeline_uses_deepseek_translator(settings, tmp_path, monke
     assert segments[0].raw_text == "こんにちは"
     assert segments[0].raw_translation == "译文0"
     assert segments[0].translation == "译文0"
+
+
+def test_pipeline_applies_glossary_without_touching_raw_text(settings, tmp_path, monkeypatch):
+    audio = _write_wav(tmp_path / "sample.wav")
+    GlossaryStore(settings).save(
+        "demo",
+        [
+            GlossaryEntry(
+                id="term-001",
+                source="田中",
+                target="田中太郎",
+                field="text",
+                policy="correct",
+            )
+        ],
+    )
+
+    class Decoded:
+        samples = np.zeros(16000, dtype=np.float32)
+        duration_ms = 1000
+
+    class Loaded:
+        model = object()
+
+    manager = JobManager(settings)
+    monkeypatch.setattr("app.jobs.manager.decode_audio", lambda _path: Decoded())
+    monkeypatch.setattr(
+        "app.jobs.manager.detect_speech", lambda *_args, **_kwargs: [SpeechSegment(0, 1000)]
+    )
+    monkeypatch.setattr(
+        "app.jobs.manager.merge_speech_segments",
+        lambda *_args, **_kwargs: [SpeechSegment(0, 1000)],
+    )
+    monkeypatch.setattr(manager.model_manager, "load", lambda *_args, **_kwargs: Loaded())
+    monkeypatch.setattr(
+        "app.jobs.manager.recognize_chunks",
+        lambda *_args, **_kwargs: RecognitionResult(
+            spans=[RecognizedSpan(0, 1000, "田中さん")], duration_after_vad_ms=1000
+        ),
+    )
+
+    request = JobRequest(
+        input_path=str(audio),
+        mode="transcribe",
+        asr_model_id="synthetic-test",
+        glossary_id="demo",
+    )
+    segments = manager._run_pipeline(request, lambda *_args: None)
+    manager.close()
+
+    assert segments[0].raw_text == "田中さん"
+    assert segments[0].text == "田中太郎さん"
+    assert segments[0].hits[0]["entry_id"] == "term-001"

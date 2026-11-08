@@ -4,11 +4,11 @@
 
 ## 当前范围
 
-当前已完成 Phase 0、Phase 1、Phase 2 和 Phase 3（3.1–3.5）：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块、任务临时目录清理、本地 faster-whisper ASR，以及 **DeepSeek 文本翻译接入**。ASR 使用本地模型，音频始终不上传；启用翻译时仅字幕文本发送到 DeepSeek。真实日语样本的 30 秒片段与完整长音频转写验收已通过。桌面 UI、词表和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
+当前已完成 Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）和 Phase 4（4.1–4.7 首版 exact 范围）：具备本地 Sidecar、音视频解码、VAD/能量回退、30 秒切块、本地 faster-whisper ASR、**DeepSeek 文本翻译**，以及**术语表精确匹配、替换与预览 API**。ASR 使用本地模型，音频始终不上传；启用翻译时仅字幕文本发送到 DeepSeek，词表处理完全本地。真实日语样本的 30 秒片段与完整长音频转写验收已通过。桌面 UI 和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
 
 ## 环境与依赖
 
-已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime、faster-whisper 1.2.1、CTranslate2 4.8.5 和检查工具。真实 ASR 加载与推理已在 RTX 4070（CUDA，bfloat16）上验证；翻译模型尚未提供。
+已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime、faster-whisper 1.2.1、CTranslate2 4.8.5、pyahocorasick 2.3.1 和检查工具。真实 ASR 加载与推理已在 RTX 4070（CUDA，bfloat16）上验证；翻译使用 DeepSeek API，不需要本地翻译权重。
 
 项目使用 `.venv`。有 Python 3.10 和 pip 时，在项目根目录执行（PowerShell）：
 
@@ -156,6 +156,37 @@ python scripts/smoke_translate.py --audio "你的日语样本.mp3" --model whisp
 ```
 
 输出每条字幕包含「日语原文 + 中文译文」两行，UTF-8 SRT，便于人工核对。未配置 Key 时脚本以中文错误退出，不会加载模型或外发任何内容。真实 144.9 秒样本已验证：ASR 17 段 → DeepSeek 17 段译文，双语 SRT 17 块全部非空（验收记录见 STATUS）。
+
+## 术语表与替换（Phase 4）
+
+支持 `exact` 精确匹配、`source` 与 `variants`、最长匹配优先、同长度按 `priority` 高者优先，以及 `correct`（日语原文纠正）、`translate`（中文译名统一）、`keep`（只高亮）三种策略。规则按 `field` 隔离：`correct` 只能作用于 `text`，`translate` 只能作用于 `translation`。`regex`、`fuzzy`、`mask` 属于 V1/STRETCH，导入时会明确返回“不支持”，不会静默跳过。
+
+CSV 列：
+
+```text
+source,variants,target,category,match_mode,regex,priority,field,policy,enabled
+```
+
+`variants` 用 `|` 分隔；重复 `source` 会合并，若 target/field/policy 冲突则拒绝。JSON 支持数组或 `{ "entries": [...] }`。
+
+API：
+
+```text
+GET  /api/glossary                          词表列表
+POST /api/glossary/import                   导入（JSON body: glossary_id, format, content）
+GET  /api/glossary/{glossary_id}/export     导出 csv/json
+POST /api/glossary/preview                  文本命中与替换预览
+```
+
+词表保存在本地 `data/glossary/<id>.json`（被 Git 忽略）。仓库提供合成示例 `examples/glossary.demo.json`；本机验收前复制：
+
+```powershell
+New-Item -ItemType Directory -Force data/glossary | Out-Null
+Copy-Item examples/glossary.demo.json data/glossary/demo.json
+python scripts/glossary_demo.py --text "田中さんと渋谷で会いました" --glossary data/glossary/demo.json
+```
+
+`app.glossary.replacer.apply_to_segment()` 返回 Segment 副本，只改 `text/translation`，`raw_text/raw_translation` 永远保持首次模型输出；命中记录写入 `hits`。任务处理中若 `glossary_id` 指向存在的词表，会自动应用并返回 `hits`。
 
 ## 开发检查
 

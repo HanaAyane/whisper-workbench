@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.glossary import router as glossary_router
 from app.api.health import VERSION
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
@@ -88,6 +89,7 @@ def create_app(
     application.include_router(health_router, prefix="/api")
     application.include_router(models_router, prefix="/api")
     application.include_router(jobs_router, prefix="/api")
+    application.include_router(glossary_router, prefix="/api")
     return application
 
 

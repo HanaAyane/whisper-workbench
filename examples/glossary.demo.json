@@ -1,0 +1,41 @@
+[
+  {
+    "id": "term-001",
+    "source": "田中",
+    "variants": ["たなか", "Tanaka"],
+    "target": "田中太郎",
+    "category": "person",
+    "match_mode": "exact",
+    "regex": null,
+    "priority": 100,
+    "field": "text",
+    "policy": "correct",
+    "enabled": true
+  },
+  {
+    "id": "term-002",
+    "source": "渋谷",
+    "variants": ["しぶや", "Shibuya"],
+    "target": "涩谷",
+    "category": "place",
+    "match_mode": "exact",
+    "regex": null,
+    "priority": 90,
+    "field": "translation",
+    "policy": "translate",
+    "enabled": true
+  },
+  {
+    "id": "term-003",
+    "source": "さん",
+    "variants": [],
+    "target": "",
+    "category": "honorific",
+    "match_mode": "exact",
+    "regex": null,
+    "priority": 10,
+    "field": "text",
+    "policy": "keep",
+    "enabled": true
+  }
+]
