@@ -16,6 +16,12 @@ Windows x64 交付两个 EXE。运行 `Whisper工作台-0.1.0-win-x64-setup.exe`
 
 Windows 交付为本地未签名构建，模型权重由用户提供。CPU 可使用默认清单的 `int8`。使用 NVIDIA GPU 时需具备相容的驱动和 CUDA 运行环境。
 
+## macOS 安装与首次启动
+
+Apple Silicon（arm64）交付一个 DMG 和一个 ZIP。打开 `Whisper工作台-0.1.0-mac-arm64.dmg`，把「Whisper工作台」拖入「应用程序」；ZIP 解压后得到同样的 `.app`。本地数据保存在 `~/Library/Application Support/jp-voice-workbench`。
+
+macOS 产物是本地 ad-hoc 签名的未公证应用。从网络下载后首次打开会被 Gatekeeper 拦截，提示「无法验证开发者」。在「应用程序」中右键点击应用选择「打开」，或到「系统设置 → 隐私与安全性」允许一次即可；不要用 `xattr` 或关闭 Gatekeeper 绕过。模型准备、翻译配置与 Windows 相同，模型权重由用户提供，macOS 版只使用 CPU（默认清单的 `int8`）。
+
 ## 打包
 
 在目标平台准备 Node.js 24、pnpm 11.21.0 和 Python 3.10 的项目 `.venv`。Windows 在仓库根目录执行。
@@ -29,7 +35,25 @@ pnpm --dir apps/desktop dist
 
 PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。Windows 产物位于 `apps/desktop/release/`。初次构建会获取 Electron 与安装器工具。
 
-macOS 在本机运行同一个 `pnpm --dir apps/desktop dist` 命令，Python 路径为 `.venv/bin/python`。仓库提供手动触发的 `Whisper工作台 macOS 构建` 工作流，在 `macos-latest` 生成 DMG 和 ZIP。当前验收平台为 Windows，macOS 工作流待实际运行。
+macOS（Apple Silicon / arm64）在仓库根目录执行同一套命令，Python 路径改为 `.venv/bin/python`：
+
+```bash
+uv pip install --require-hashes --python .venv/bin/python -r backend/requirements.txt -r backend/requirements-build.txt
+pnpm --dir apps/desktop install --frozen-lockfile
+pnpm --dir apps/desktop dist
+```
+
+产物位于 `apps/desktop/release/`，包括 `Whisper工作台-0.1.0-mac-arm64.dmg`、同名 ZIP 及 blockmap。`scripts/after-pack.cjs` 在打包后做 ad-hoc 签名，使下载到的副本通过完整性校验；配置 Developer ID 证书后 Electron Builder 会用真实证书覆盖该签名。当前未做公证。
+
+从 GitHub 下载 Electron 或 Electron Builder 二进制过慢时，可对构建命令临时加镜像环境变量（本机实际采用）：
+
+```bash
+export ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
+export ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/
+pnpm --dir apps/desktop dist
+```
+
+仓库提供手动触发的 `Whisper工作台 macOS 构建` 工作流，在 `macos-latest` 生成 DMG 和 ZIP；本机已在 macOS 27.0（arm64）完成 DMG/ZIP 构建、ad-hoc 签名、DMG 挂载和打包版运行验收。
 
 参见[一分钟演示](docs/demo.md)与[架构说明](docs/architecture.md)。
 

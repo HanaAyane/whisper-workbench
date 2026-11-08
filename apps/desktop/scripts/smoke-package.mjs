@@ -16,8 +16,10 @@ const profile = join(run, 'profile')
 const modelDirectory = process.env.JP_WORKBENCH_PACKAGE_SMOKE_MODELS || join(run, 'external-models')
 const audio = process.env.JP_WORKBENCH_PACKAGE_SMOKE_AUDIO
 const env = { ...process.env, JP_WORKBENCH_PYTHON: join(run, 'missing-python.exe') }
+// ELECTRON_RUN_AS_NODE 会让 Electron 以 Node 模式启动，导致打包版无法出现窗口。
 for (const key of ['JP_WORKBENCH_ROOT', 'JP_WORKBENCH_MODELS_DIR', 'JP_WORKBENCH_MANIFEST',
-  'JP_WORKBENCH_GLOSSARY_DIR', 'JP_WORKBENCH_TEMP_DIR', 'JP_WORKBENCH_USER_DATA']) delete env[key]
+  'JP_WORKBENCH_GLOSSARY_DIR', 'JP_WORKBENCH_TEMP_DIR', 'JP_WORKBENCH_USER_DATA',
+  'ELECTRON_RUN_AS_NODE']) delete env[key]
 const launch = () => _electron.launch({ executablePath: executable, args: [`--user-data-dir=${profile}`], env })
 let app
 let completed

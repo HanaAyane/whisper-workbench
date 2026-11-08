@@ -1,3 +1,5 @@
 allowBuilds:
   electron: true
+  # Windows 安装器辅助依赖，仅 electron-builder 打 NSIS 时需要，无需执行其构建脚本。
+  electron-winstaller: false
   esbuild: true

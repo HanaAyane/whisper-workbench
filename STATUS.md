@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 打包交付。安装版和便携版均包含冻结的本地 sidecar，并在首次启动检查模型。按用户要求跳过 Phase 8。
+Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交付。安装版和便携版均包含冻结的本地 sidecar，并在首次启动检查模型；macOS 产出 ad-hoc 签名的 DMG 和 ZIP。按用户要求跳过 Phase 8。
 
 ## 阶段进展
 
@@ -19,7 +19,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 打包交付。安装版�
 | 6 队列/持久化 | 完成（6.1–6.5） | pytest 115 项通过。Electron 合成音频烟雾验证真实 WebSocket 与重启恢复 | SQLite、FIFO、协作取消、受鉴权的推送与中文故障提示 |
 | 7 编辑/导出/隐私 | 完成（7.1–7.5） | pytest 121 项通过。Windows Electron 真实本地 ASR、模拟翻译、术语复核、四格式导出、覆盖与重启通过 | 数据库保留原始输出、当前字幕和复核决定。翻译与文件对话框使用受控验收环境 |
 | 8 测试/评测 | 按用户要求跳过 | 不适用 | Phase 9 只做打包验收 |
-| 9 打包交付 | 完成（9.1–9.7） | Windows x64 安装、启动、卸载、便携版启动、冻结 sidecar 真实转录与 SRT 导出通过 | Windows 包为未签名本地构建。macOS 提供手动构建工作流 |
+| 9 打包交付 | 完成（9.1–9.7） | Windows x64 安装、启动、卸载、便携版启动、冻结 sidecar 真实转录与 SRT 导出通过；macOS 27.0 arm64 的 DMG/ZIP 构建、ad-hoc 签名、DMG 挂载与打包版冒烟通过 | Windows 包为未签名本地构建；macOS 包为未公证的 ad-hoc 签名构建，手动构建工作流已可用 |
 
 ## 环境与兼容性
 
@@ -31,6 +31,9 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 打包交付。安装版�
 - Phase 3 新增 faster-whisper 1.2.1、CTranslate2 4.8.5 及其传递依赖；全部 45 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。`ctranslate2.get_cuda_device_count()` 返回 1，支持 `bfloat16/float16/float32/int8*`。
 - Phase 4 新增 pyahocorasick 2.3.1（多模式匹配，失败时可回退纯 Python find）；全部 46 个依赖及哈希锁定，`uv pip check` 通过。
 - Phase 9 使用 PyInstaller 6.22.3 和 Electron Builder 26.18.0。构建依赖已单独锁定，Python 环境的 53 个包通过兼容检查。
+- macOS 构建环境：macOS 27.0（26A428，Apple Silicon arm64）、Xcode 27.0、Node 24.18.0、pnpm 11.21.0、uv 0.13.7 安装的 CPython 3.10.22、Electron 45.2.3、electron-builder 26.18.0、PyInstaller 6.22.3。`backend/requirements.txt` 中的哈希同时覆盖 Windows 与 macOS arm64 轮子，macOS 直接按原锁文件安装成功，未修改后端依赖或版本。
+- Electron 与 Electron Builder 的二进制改由 npmmirror 镜像获取：GitHub 直连实测约 44 KB/s，121 MB 的 Electron 压缩包在 10 分钟超时内无法完成；镜像实测约 17 MB/s，并使用包内 `checksums.json` 校验。
+- pnpm 11 的 `allowBuilds` 需要显式决定 `electron-winstaller`。已设为 `false`（仅 Windows NSIS 使用的构建脚本），否则 `pnpm install`、`pnpm lint` 等前置依赖检查以 `ERR_PNPM_IGNORED_BUILDS` 退出 1。
 - DeepSeek 翻译复用已有 `httpx 0.28.1`，未新增第三方 SDK；`.env` 由项目内简单解析，未新增 python-dotenv。
 
 ## Phase 0 验收记录
@@ -130,7 +133,12 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 打包交付。安装版�
 - NSIS 在隔离目录完成静默安装、启动和卸载。便携 EXE 实际启动后连接冻结 sidecar，显示首启缺失模型提示。三个界面截图来自 Windows 打包版。
 - 首启自动准备默认模型清单。「打开模型目录」和选择外部清单通过桌面验收。重启恢复选择的模型目录和任务历史。改名后沿用现有用户数据目录。
 - 打包版使用既有本地日语样本的 30 秒片段，冻结 sidecar 生成 4 段字幕并导出 SRT。测试使用受控文件对话框路径和独立用户目录。
-- Python pytest 121 项通过。前端 lint、严格类型检查、2 项单测、生产构建、Ruff 和仓库基础检查通过。macOS arm64 的锁定轮子解析通过，DMG/ZIP 构建和运行待在 macOS 上验收。
+- Python pytest 121 项通过。前端 lint、严格类型检查、2 项单测、生产构建、Ruff 和仓库基础检查通过。
+- macOS 27.0 arm64：`pnpm --dir apps/desktop build` 与 `pnpm --dir apps/desktop dist` 通过。产物为 `Whisper工作台-0.1.0-mac-arm64.dmg`（174 MiB）和同名 ZIP（169 MiB），`unzip -t` 无错误，DMG 可挂载且包含应用与「应用程序」快捷方式，校验值见 `apps/desktop/release/SHA256SUMS.txt`。
+- 冻结 sidecar（PyInstaller 6.22.3，Mach-O arm64，164 MB）单独启动返回 `SIDECAR_READY`；打包版启动后主进程输出「本地服务已就绪。」。
+- `scripts/after-pack.cjs` 在 Electron Builder 改写 bundle 后做 ad-hoc 签名，`codesign --verify --deep --strict` 通过；`spctl` 仍拒绝未公证应用，属预期，README 已写明首次打开的放行方式。
+- `scripts/smoke-package.mjs` 分别对 `release/mac-arm64` 和从 DMG 复制出的 `.app` 运行：打包版启动、首启模型提示、「打开模型目录」IPC、模型目录选择、词表导入与预览、重启后恢复模型目录与历史均通过。
+- 环境差异：`ELECTRON_RUN_AS_NODE=1` 会让 Electron 以 Node 模式启动，冒烟脚本已清理该变量；其余检查在 Windows 与 macOS 上使用同一入口。
 
 ## 遗留与下一步
 
@@ -138,4 +146,6 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 打包交付。安装版�
 - Phase 4 的 regex/fuzzy 属 V1、mask 属 STRETCH，均未实现；导入时会明确拒绝，不影响 exact 范围验收。
 - Phase 3 的 DeepSeek 翻译已真实跑通，真实翻译质量与专名一致性仍需按样本继续评估。
 - Phase 2 的 `[V1]` waveform peaks、Phase 3 的批量任务和流式转写、Phase 5 的自动保存草稿仍待开发。
+- macOS 包只构建 arm64，未提供 Intel x64 或 universal 包；只做 ad-hoc 签名，未做 Developer ID 签名与公证，正式对外分发前需补这一步。
+- 手动触发的 `Whisper工作台 macOS 构建` 工作流仍未在 GitHub Actions 远端实际运行；本机已用同一 `pnpm --dir apps/desktop dist` 命令完成构建、签名和运行验收。
 - 未创建远程仓库，未推送、发布或打标签。
