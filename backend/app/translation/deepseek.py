@@ -105,6 +105,7 @@ class DeepSeekTranslator:
         source_language: str = "ja",
         target_language: str = "zh",
         on_progress: ProgressCallback | None = None,
+        check_cancelled: Callable[[], None] | None = None,
     ) -> list[str]:
         if not texts:
             return []
@@ -113,7 +114,10 @@ class DeepSeekTranslator:
         for batch_index, batch in enumerate(batches, start=1):
             translations.update(
                 self._translate_batch(
-                    batch, source_language=source_language, target_language=target_language
+                    batch,
+                    source_language=source_language,
+                    target_language=target_language,
+                    check_cancelled=check_cancelled,
                 )
             )
             if on_progress is not None:
@@ -129,6 +133,7 @@ class DeepSeekTranslator:
         *,
         source_language: str,
         target_language: str,
+        check_cancelled: Callable[[], None] | None,
     ) -> dict[int, str]:
         schema = '{"translations":[{"id":整数,"text":"' + target_language + '译文"}]}'
         payload: dict[str, Any] = {
@@ -159,6 +164,8 @@ class DeepSeekTranslator:
         }
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
+            if check_cancelled is not None:
+                check_cancelled()
             try:
                 response = self._client.post(
                     f"{self.config.base_url}/chat/completions", json=payload

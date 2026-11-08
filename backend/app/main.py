@@ -19,13 +19,13 @@ from app.api.glossary import router as glossary_router
 from app.api.health import VERSION
 from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
+from app.api.jobs import ws_router
 from app.api.models import router as models_router
-from app.config import Settings
+from app.config import LOCAL_ORIGIN, Settings
 from app.jobs.manager import JobManager, JobRunner
 from app.translation.deepseek import DeepSeekTranslator
 
 logger = logging.getLogger("uvicorn.error")
-LOCAL_ORIGIN = r"http://127\.0\.0\.1(?::[0-9]+)?"
 
 
 def create_app(
@@ -35,10 +35,12 @@ def create_app(
     translator: DeepSeekTranslator | None = None,
 ) -> FastAPI:
     config = settings if settings is not None else Settings.from_env()
-    job_manager = JobManager(config, job_runner=job_runner, translator=translator)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
+        job_manager = JobManager(config, job_runner=job_runner, translator=translator)
+        job_manager.start()
+        application.state.job_manager = job_manager
         application.state.token = config.token or secrets.token_urlsafe(32)
         if config.token is None:
             # 仅通过本地进程 stdout 交付凭据，不通过 HTTP 暴露，不写业务日志。
@@ -60,7 +62,6 @@ def create_app(
         openapi_url=None,
     )
     application.state.settings = config
-    application.state.job_manager = job_manager
 
     @application.middleware("http")
     async def local_auth(request: Request, call_next):
@@ -77,7 +78,7 @@ def create_app(
     application.add_middleware(
         CORSMiddleware,
         allow_origin_regex=LOCAL_ORIGIN,
-        allow_methods=["GET", "POST", "PUT", "DELETE"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["X-Sidecar-Token"],
         allow_credentials=False,
     )
@@ -92,6 +93,7 @@ def create_app(
     application.include_router(health_router, prefix="/api")
     application.include_router(models_router, prefix="/api")
     application.include_router(jobs_router, prefix="/api")
+    application.include_router(ws_router)
     application.include_router(glossary_router, prefix="/api")
     return application
 

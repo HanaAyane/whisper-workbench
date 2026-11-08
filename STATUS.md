@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-本轮实现 Phase 5 的 Electron 工作台。桌面端支持录音和文件导入、任务进度和取消、原始与编辑字幕对照、词表 CRUD 与预览、推理设置及四种字幕格式导出。导航、录音面板、任务栏和导出条使用 Glasswork v1.1.0。
+Phase 6 将任务、进度和已保存的字幕编辑迁移到本地 SQLite。Electron 使用 WebSocket 接收状态，重启后恢复历史并标记中断任务。
 
 ## 阶段进展
 
@@ -16,7 +16,7 @@
 | 3 ASR/翻译 | 完成（3.1–3.5） | 全量 pytest 111 passed；真实日语样本 30 秒冒烟与真实 API 任务通过；完整 144.9 秒样本真实 DeepSeek 翻译生成 17 段双语 SRT；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs、DeepSeek 翻译与 smoke 脚本已实现；翻译仅文本外发，音频本地 |
 | 4 术语引擎 | 完成（4.1–4.7 首版 exact） | pytest 111 passed；`scripts/glossary_demo.py` 实际输出命中与替换结果；API 导入/预览/导出通过 | exact 匹配、别名、最长匹配、priority、correct/translate/keep、字段隔离、CSV/JSON、预览与任务应用；regex/fuzzy/mask 属 V1/STRETCH 未实现 |
 | 5 Electron/React | 完成（5.1–5.6） | Windows Electron 开发启动、生产界面烟雾、录音与拖放转写、词表导入预览、字幕编辑与 SRT 导出。前端检查通过，pytest 113 passed | 使用模拟麦克风输入本地日语样本。任务与编辑为会话态 |
-| 6 队列/持久化 | 未开始 | 不适用 | 按实际需求推进 |
+| 6 队列/持久化 | 完成（6.1–6.5） | pytest 115 项通过。Electron 合成音频烟雾验证真实 WebSocket 与重启恢复 | SQLite、FIFO、协作取消、受鉴权的推送与中文故障提示 |
 | 7 编辑/导出/隐私 | 未开始 | 不适用 | 尚无实现 |
 | 8 测试/评测 | 未开始 | 不适用 | 尚无业务或真实模型评测 |
 | 9 打包交付 | 未开始 | 不适用 | 尚无安装包或跨平台验收 |
@@ -108,9 +108,16 @@
 - Windows Electron 生产界面烟雾通过。合成正弦信号验证了录音 WebM 解码、任务成功、临时录音清理、拖放和空 SRT。用此前验收的本地日语样本模拟麦克风约 10 秒得到 3 段，并验证保留录音副本。拖放同一完整样本得到 17 段，手工编辑后导出 SRT，模型原文保持不变。验收使用模拟麦克风和受控保存路径，未做物理麦克风人工验收或重跑真实 DeepSeek 请求。
 - 通过桌面 UI 导入合成词表并显示命中及替换预览。Ruff 静态和格式检查、仓库基础检查、后端 pytest 113 项、前端 lint/严格 typecheck/2 项单测/build 通过。CI 已配置 Windows/Linux 上的前端检查，远端运行待实际触发。
 
+## Phase 6 验收记录
+
+- 本地 SQLite 保存任务状态、字幕与已保存编辑。恢复中断的任务时只更新状态，保留原来的进度和历史顺序。
+- 测试提交三个任务，确认 FIFO，取消正在运行的任务并清理临时录音，随后重启读取三条历史。也覆盖排队取消、意外中断恢复、非本地来源和缺令牌的 WebSocket 拒绝。
+- Windows Electron 使用模拟麦克风和合成音频走通录音与拖放。主进程确实收到 WebSocket 消息，关闭应用后用同一测试用户目录重启，恢复两条已完成历史。
+- 后端 pytest 115 项通过。Ruff、仓库基础检查、桌面 lint、严格类型检查、2 项前端单测和构建通过。
+
 ## 遗留与下一步
 
-- Phase 0–5 的首版范围已完成。Phase 6 的跨会话任务存储和 WebSocket、Phase 7 的逐条术语接受/拒绝/撤销及保存接口、Phase 9 的安装包仍待开发。Phase 5 提供轮询与处理步骤边界取消。
+- Phase 0–6 已完成。Phase 7 的逐条术语复核和正式字幕导出、Phase 9 的安装包仍待开发。
 - Phase 4 的 regex/fuzzy 属 V1、mask 属 STRETCH，均未实现；导入时会明确拒绝，不影响 exact 范围验收。
 - Phase 3 的 DeepSeek 翻译已真实跑通，真实翻译质量与专名一致性仍需按样本继续评估。
 - Phase 2 的 `[V1]` waveform peaks、Phase 3 的批量任务和流式转写、Phase 5 的自动保存草稿仍待开发。

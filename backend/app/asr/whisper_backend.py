@@ -35,6 +35,7 @@ def recognize_chunks(
     task: str = "transcribe",
     beam_size: int = 5,
     on_progress: ProgressCallback | None = None,
+    check_cancelled: Callable[[], None] | None = None,
 ) -> RecognitionResult:
     """逐块识别并把块内秒级时间戳换算为全局毫秒。"""
 
@@ -46,13 +47,20 @@ def recognize_chunks(
     spans: list[RecognizedSpan] = []
     total_chunks = len(chunks)
     for index, chunk in enumerate(chunks):
+        if check_cancelled is not None:
+            check_cancelled()
         start_sample = round(chunk.start_ms * 16000 / 1000)
         end_sample = round(chunk.end_ms * 16000 / 1000)
         clip = np.ascontiguousarray(audio[start_sample:end_sample], dtype=np.float32)
         if clip.size == 0:
             continue
         for raw_start, raw_end, text in _recognize_clip(
-            model, clip, language=language, task=task, beam_size=beam_size
+            model,
+            clip,
+            language=language,
+            task=task,
+            beam_size=beam_size,
+            check_cancelled=check_cancelled,
         ):
             start_ms = max(chunk.start_ms, chunk.start_ms + round(raw_start * 1000))
             end_ms = min(chunk.end_ms, chunk.start_ms + round(raw_end * 1000))
@@ -102,6 +110,7 @@ def _recognize_clip(
     language: str,
     task: str,
     beam_size: int,
+    check_cancelled: Callable[[], None] | None = None,
 ) -> list[tuple[float, float, str]]:
     segments, _info = model.transcribe(
         clip,
@@ -114,6 +123,8 @@ def _recognize_clip(
     )
     recognized: list[tuple[float, float, str]] = []
     for segment in segments:
+        if check_cancelled is not None:
+            check_cancelled()
         text = segment.text.strip()
         if text:
             recognized.append((segment.start, segment.end, text))

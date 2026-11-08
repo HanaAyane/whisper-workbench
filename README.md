@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper 转录、可选 DeepSeek 文本翻译、术语表维护与匹配预览、当前会话内的字幕编辑，以及 SRT、VTT、LRC、TXT 导出。音频始终留在本机，只有启用翻译时才会将待翻译字幕文本发送给 DeepSeek。Phase 6 负责跨会话任务记录，Phase 7 负责逐条接受、拒绝和撤销术语建议。
+Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper 转录、可选 DeepSeek 文本翻译、任务历史、术语表维护与匹配预览、字幕编辑，以及 SRT、VTT、LRC、TXT 导出。音频始终留在本机，只有启用翻译时才会将待翻译字幕文本发送给 DeepSeek。
 
 ## 环境与依赖
 
@@ -58,10 +58,10 @@ pnpm --dir apps/desktop dev
 
 首次运行会取得锁定版本的 Electron。开发脚本优先让 Vite 监听 `127.0.0.1:5173`，端口不可用时切换到系统分配的环回端口。Electron 主进程随后启动本地 Python 服务，并通过私有管道取得其环回端口。令牌只在主进程和 Python 服务中使用。也可执行 `pnpm --dir apps/desktop build` 后运行 `pnpm --dir apps/desktop start`，加载构建后的界面。
 
-- 在「新建转录」录制约 10 秒日语或拖入媒体，再点「开始处理」。任务栏显示进度，运行中取消会在当前处理步骤结束后生效。
+- 在「新建转录」录制约 10 秒日语或拖入媒体，再点「开始处理」。任务按提交顺序运行，任务栏通过 WebSocket 显示阶段和进度。排队时可立即取消，运行中会在下一个安全检查点停止。
 - 转录完成后在「字幕复核」并排查看模型输出和当前字幕。点「编辑」再「保存」，导出会使用已保存的当前字幕。纯静音或合成正弦波可能生成空 SRT。
 - 在「术语表」导入 `examples/glossary.demo.json`，用 `田中さんと渋谷で会いました` 验证高亮和替换预览。也可以直接维护词条，或导出 CSV/JSON。
-- 在「设置」选择含 `manifest.json` 的目录、推理设备、计算类型和默认导出目录。任务与设置保存在本次运行的会话内，词表保存在本地。
+- 在「设置」选择含 `manifest.json` 的目录、推理设备、计算类型和默认导出目录。设置在当前会话生效，任务与已保存字幕会在重启后恢复。
 - 录音在任务结束后清理。勾选「保留录音副本」会在 Electron 用户数据目录的 `recordings/` 保留 WebM，任务详情会显示保存路径。
 
 导航、录音面板、任务栏和导出条使用本地打包的 Glasswork v1.1.0 MIT 样式和 Chromium 折射。背景是项目内的矢量图与渐变，浅色和深色均提供降低透明度时的实底材质。来源见 [Glasswork v1.1.0](https://github.com/kubai087/glasswork/tree/v1.1.0)。
@@ -131,14 +131,24 @@ python scripts/make_demo_assets.py --out data/demo
 
 `app.asr.whisper_backend.recognize_chunks()` 对 Phase 2 产生的 ≤30 秒块逐块推理，把块内时间戳换算为全局毫秒并裁剪到块边界。ASR 模型已在 RTX 4070（cuda/bfloat16）完成加载与真实日语样本验收（30 秒片段及完整 144.9 秒长音频）。
 
-任务接口（内存态，重启后不保留；持久化/取消/WebSocket 留待 Phase 6）：
+## 任务队列与历史（Phase 6）
 
 ```text
-POST /api/jobs           创建任务，返回 202 与 JobStatus
-GET  /api/jobs/{job_id}  查询状态、进度、阶段与 segments
+POST  /api/jobs                        创建任务，返回 202 与 JobStatus
+GET   /api/jobs                        按创建时间倒序读取任务
+GET   /api/jobs/{job_id}               查询状态、进度、阶段与 segments
+POST  /api/jobs/{job_id}/cancel        请求取消
+PATCH /api/jobs/{job_id}/segments/{id} 保存字幕编辑副本
+WS    /ws/jobs/{job_id}                发送当前快照和后续变更
 ```
 
-`JobRequest` / `JobStatus` / `Segment` 遵循 AGENT.md 6.2/6.6/6.3：时间均为毫秒整数，`raw_text/raw_translation` 保存首次模型输出，`text/translation` 是可编辑副本。任务为单 worker 顺序执行，状态 `queued → running → succeeded/failed`；`export_formats` 暂被接受但不生成文件，正式导出在 Phase 7。
+桌面端在 Electron 用户数据目录的 `jobs.sqlite3` 保存任务状态和字幕，独立启动 sidecar 时默认使用项目的 `data/jobs.sqlite3`，可通过 `JP_WORKBENCH_JOBS_DB` 指定路径。同一数据库由单个 sidecar 使用。重启时，退出前仍在运行或排队的任务显示为已中断，历史任务不会自动重跑。数据库含字幕原文、译文和保存后的编辑结果，应作为本地私人数据保管。
+
+WebSocket 使用同一会话令牌，可通过 `X-Sidecar-Token` 请求头或 Electron 使用的 `jp-workbench, <token>` 子协议握手鉴权。消息带 `revision`，连接中断时客户端查询最新快照后重连。取消检查覆盖解码、VAD 窗口、推理片段和翻译批次，已发出的单次网络请求或正在执行的原生推理须等待返回。
+
+`raw_text/raw_translation` 保存首次模型输出，`text/translation` 是可编辑副本，时间均为毫秒整数。任务状态包括 `queued`、`running`、`succeeded`、`failed` 和 `cancelled`。
+
+## 本地模型冒烟
 
 冒烟命令（会真实加载本地模型；`--no-vad-onnx` 可强制能量 VAD）：
 

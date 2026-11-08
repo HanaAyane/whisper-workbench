@@ -5,19 +5,22 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { dialog, type BrowserWindow } from 'electron'
 import { exportFormats, mediaExtensions } from '../shared/api.js'
 import type {
-  DesktopJob, ExportFormat, JobInput, JobOptions, JobStatus, ModelCatalog, SegmentEdit,
+  DesktopJob, ExportFormat, JobInput, JobOptions, ModelCatalog, SegmentEdit,
 } from '../shared/api.js'
 import { Sidecar, SidecarResponseError, type SidecarConnection } from './sidecar.js'
 import { formatSubtitles } from './subtitles.js'
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024
-const active = (job: JobStatus) => job.state === 'running' || job.state === 'queued'
+const active = (job: DesktopJob) => job.state === 'running' || job.state === 'queued'
+const jobPath = (id: string) => {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('任务 ID 无效。')
+  return `/jobs/${id}`
+}
 
 export class Workbench {
   readonly sidecar: Sidecar
   private readonly files = new Map<string, string>()
-  private readonly jobs = new Map<string, { value: DesktopJob; backendId: string; connection: SidecarConnection }>()
-  private readonly temporary = new Set<string>()
+  private readonly watching = new Set<string>()
   private modelsDir?: string
   private outputDir?: string
   private submissions = 0
@@ -30,7 +33,7 @@ export class Workbench {
     private readonly dataDir: string,
     private readonly getWindow: () => BrowserWindow | null,
   ) {
-    this.sidecar = new Sidecar(root, packaged)
+    this.sidecar = new Sidecar(root, packaged, dataDir)
   }
 
   connect() {
@@ -65,10 +68,19 @@ export class Workbench {
     if (!(await stat(join(chosen, 'manifest.json')).catch(() => null))?.isFile()) {
       throw new Error('所选目录中没有 manifest.json。')
     }
-    if (this.switchingModelDirectory || this.submissions || this.listJobs().some(active)) {
+    if (this.switchingModelDirectory || this.submissions) {
       throw new Error('任务处理期间无法切换模型目录。')
     }
     this.switchingModelDirectory = true
+    try {
+      const previous = await this.sidecar.connect(this.modelsDir)
+      if ((await previous.request<DesktopJob[]>('/jobs')).some(active)) {
+        throw new Error('任务处理期间无法切换模型目录。')
+      }
+    } catch (error) {
+      this.switchingModelDirectory = false
+      throw error
+    }
     try {
       await this.sidecar.stop()
       if (this.closing) throw new Error('工作台正在关闭。')
@@ -102,10 +114,13 @@ export class Workbench {
       const { path, keep } = await this.prepareAudio(input, id)
       if (input.kind === 'recording' && !keep) recording = path
       if (this.closing) throw new Error('工作台正在关闭。')
-      const status = await connection.request<JobStatus>('/jobs', {
+      const name = input.kind === 'recording' ? `麦克风录音 · ${new Date().toLocaleTimeString('zh-CN')}` : basename(path)
+      const status = await connection.request<DesktopJob>('/jobs', {
         method: 'POST',
         body: {
           input_path: path,
+          name,
+          recording: input.kind === 'recording' ? (keep ? 'retained' : 'temporary') : null,
           asr_model_id: options.asr_model_id,
           mode: options.mode,
           glossary_id: options.glossary_id,
@@ -113,15 +128,12 @@ export class Workbench {
           compute_type: options.compute_type,
         },
       })
-      const name = input.kind === 'recording' ? `麦克风录音 · ${new Date().toLocaleTimeString('zh-CN')}` : basename(path)
-      const value: DesktopJob = { ...status, id, name, mode: options.mode, recordedPath: keep ? path : undefined }
-      this.jobs.set(id, { value, backendId: status.id, connection })
       console.info('已提交本地媒体任务。')
-      if (active(value)) void this.watchJob(id, recording)
-      else if (recording) await this.removeRecording(recording)
-      return value
+      if (active(status)) void this.watchJob(status.id)
+      return status
     } catch (error) {
-      if (recording && (error instanceof SidecarResponseError || connection?.ended || this.closing)) {
+      const rejected = error instanceof SidecarResponseError && error.status >= 400 && error.status < 500
+      if (recording && (rejected || connection?.ended || this.closing)) {
         await this.removeRecording(recording)
       }
       throw error
@@ -130,31 +142,30 @@ export class Workbench {
     }
   }
 
-  listJobs() {
-    return [...this.jobs.values()].map(({ value }) => value).reverse()
+  async listJobs() {
+    const jobs = await (await this.connect()).request<DesktopJob[]>('/jobs')
+    for (const job of jobs) {
+      if (active(job)) void this.watchJob(job.id)
+    }
+    return jobs
   }
 
   async cancelJob(id: string) {
-    const { backendId, connection, value } = this.getJob(id)
-    if (active(value)) await connection.request(`/jobs/${backendId}/cancel`, { method: 'POST' })
+    const job = await (await this.connect()).request<DesktopJob>(`${jobPath(id)}/cancel`, { method: 'POST' })
+    this.publish(job)
   }
 
-  updateSegment(id: string, segmentId: number, edit: SegmentEdit) {
-    const { value } = this.getJob(id)
-    const segment = value.segments.find((item) => item.id === segmentId)
-    if (value.state !== 'succeeded' || !segment) throw new Error('找不到可编辑的字幕片段。')
-    if (!edit || typeof edit.text !== 'string' ||
-      (segment.raw_translation === null ? edit.translation !== null : typeof edit.translation !== 'string')) {
-      throw new Error('字幕内容无效。')
-    }
-    segment.text = edit.text
-    segment.translation = edit.translation
-    this.publish(value)
+  async updateSegment(id: string, segmentId: number, edit: SegmentEdit) {
+    if (!Number.isSafeInteger(segmentId) || segmentId < 0) throw new Error('字幕片段 ID 无效。')
+    const job = await (await this.connect()).request<DesktopJob>(`${jobPath(id)}/segments/${segmentId}`, {
+      method: 'PATCH', body: edit,
+    })
+    this.publish(job)
   }
 
   async exportJob(id: string, format: ExportFormat) {
     if (!exportFormats.includes(format)) throw new Error('字幕格式无效。')
-    const { value } = this.getJob(id)
+    const value = await (await this.connect()).request<DesktopJob>(jobPath(id))
     if (value.state !== 'succeeded') throw new Error('任务完成后才能导出字幕。')
     const name = value.name.replace(/\.[^./\\]+$/, '').replace(/[<>:"/\\|?*]/g, '-')
     const content = formatSubtitles(value.segments, format)
@@ -183,7 +194,6 @@ export class Workbench {
   async close() {
     this.closing = true
     await this.sidecar.stop()
-    await Promise.all([...this.temporary].map((path) => this.removeRecording(path)))
   }
 
   private window() {
@@ -211,7 +221,6 @@ export class Workbench {
     await mkdir(folder, { recursive: true })
     if (this.closing) throw new Error('工作台正在关闭。')
     const path = join(folder, `recording-${id}.webm`)
-    if (!input.keep) this.temporary.add(path)
     try {
       await writeFile(path, Buffer.from(input.data), { flag: 'wx' })
     } catch {
@@ -221,43 +230,42 @@ export class Workbench {
     return { path, keep: input.keep }
   }
 
-  private getJob(id: string) {
-    const job = this.jobs.get(id)
-    if (!job) throw new Error('找不到当前会话中的任务。')
-    return job
-  }
-
   private publish(value: DesktopJob) {
     const window = this.getWindow()
     if (window && !window.isDestroyed()) window.webContents.send('job-update', value)
   }
 
-  private async watchJob(id: string, recording?: string) {
-    const job = this.getJob(id)
-    while (!this.closing && active(job.value)) {
-      await delay(450)
-      if (this.closing) break
-      try {
-        const status = await job.connection.request<JobStatus>(`/jobs/${job.backendId}`)
-        job.value = { ...job.value, ...status, id }
-      } catch (error) {
-        if (job.connection.ended || error instanceof SidecarResponseError) {
-          job.value = { ...job.value, state: 'failed', message: '任务连接已结束', error: '请重新提交任务。' }
-        } else {
-          job.value = { ...job.value, message: '连接暂时中断，正在重新查询任务' }
-        }
+  private async watchJob(id: string) {
+    if (this.watching.has(id)) return
+    this.watching.add(id)
+    try {
+      const path = jobPath(id)
+      let terminal = false
+      const update = (job: DesktopJob) => {
+        this.publish(job)
+        terminal = !active(job)
       }
-      this.publish(job.value)
+      while (!this.closing && !terminal) {
+        try {
+          const connection = await this.connect()
+          await connection.streamJob(id, update)
+          // 断线或握手失败时补一次快照，再重连推送。
+          if (!terminal && !this.closing) update(await connection.request<DesktopJob>(path))
+        } catch (error) {
+          if (error instanceof SidecarResponseError && error.status === 404) return
+        }
+        if (!terminal && !this.closing) await delay(800)
+      }
+    } finally {
+      this.watching.delete(id)
     }
-    if (recording && !this.closing) await this.removeRecording(recording)
   }
 
   private async removeRecording(path: string) {
     try {
       await rm(path, { force: true })
-      this.temporary.delete(path)
     } catch {
-      console.warn('临时录音清理失败，将在关闭工作台时重试。')
+      console.warn('临时录音暂时无法清理，下次启动时重试。')
     }
   }
 }

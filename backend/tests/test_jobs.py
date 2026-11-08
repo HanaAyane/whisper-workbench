@@ -2,7 +2,9 @@
 
 import time
 import wave
+from dataclasses import replace
 from threading import Event
+from uuid import uuid4
 
 import numpy as np
 import pytest
@@ -12,9 +14,11 @@ from app.config import Settings
 from app.glossary.models import GlossaryEntry
 from app.glossary.store import GlossaryStore
 from app.jobs.manager import JobManager
-from app.jobs.schemas import JobRequest, Segment
+from app.jobs.schemas import JobRequest, JobStatus, Segment
 from app.main import create_app
+from app.storage.jobs import JobStore
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 HEADERS = {"X-Sidecar-Token": "dev"}
 
@@ -140,6 +144,112 @@ def test_cancel_running_and_queued_jobs(settings, tmp_path):
     assert len(calls) == 1
 
 
+def test_fifo_push_cancel_and_restart(settings, tmp_path):
+    settings = replace(settings, recordings_dir=tmp_path / "recordings")
+    settings.recordings_dir.mkdir()
+    media = _write_wav(tmp_path / "sample.wav")
+    started = Event()
+    release = Event()
+    order = []
+
+    def runner(request, report):
+        order.append(request.name)
+        if request.name == "第一":
+            report(0.2, "vad", "正在检测语音")
+            started.set()
+            assert release.wait(5)
+        return _segments(request, report)
+
+    with TestClient(create_app(settings, job_runner=runner)) as client:
+        recording = _write_wav(settings.recordings_dir / f"recording-{uuid4()}.webm")
+        first = (
+            client.post(
+                "/api/jobs",
+                json={**_payload(recording), "name": "第一", "recording": "temporary"},
+                headers=HEADERS,
+            )
+            .raise_for_status()
+            .json()
+        )
+        try:
+            assert started.wait(2)
+            rest = [
+                client.post(
+                    "/api/jobs", json={**_payload(media), "name": name}, headers=HEADERS
+                ).json()
+                for name in ["第二", "第三"]
+            ]
+            assert [job["state"] for job in rest] == ["queued", "queued"]
+            path = f"/ws/jobs/{first['id']}"
+            with (
+                pytest.raises(WebSocketDisconnect),
+                client.websocket_connect(
+                    path, headers={**HEADERS, "origin": "https://example.org"}
+                ),
+            ):
+                pytest.fail("外部来源不应连接")
+            with pytest.raises(WebSocketDisconnect), client.websocket_connect(path):
+                pytest.fail("缺少令牌不应连接")
+            with client.websocket_connect(path, subprotocols=["jp-workbench", "dev"]) as ws:
+                assert ws.accepted_subprotocol == "jp-workbench"
+                running = ws.receive_json()
+                assert (running["state"], running["stage"], running["progress"]) == (
+                    "running",
+                    "vad",
+                    0.2,
+                )
+                client.post(f"/api/jobs/{first['id']}/cancel", headers=HEADERS).raise_for_status()
+                assert ws.receive_json()["cancel_requested"]
+                assert recording.exists()
+                release.set()
+                terminal = ws.receive_json()
+                assert terminal["state"] == "cancelled"
+                assert terminal["revision"] > running["revision"]
+                assert not recording.exists()
+            for job in rest:
+                assert _wait(client, job["id"])["state"] == "succeeded"
+        finally:
+            release.set()
+    assert order == ["第一", "第二", "第三"]
+    with TestClient(create_app(settings, job_runner=runner)) as client:
+        history = client.get("/api/jobs", headers=HEADERS).json()
+        assert [(job["name"], job["state"]) for job in history] == [
+            ("第三", "succeeded"),
+            ("第二", "succeeded"),
+            ("第一", "cancelled"),
+        ]
+        assert history[0]["segments"][0]["raw_text"] == "テストです。"
+    assert order == ["第一", "第二", "第三"]
+    assert media.is_file()
+
+
+def test_recovers_interrupted_jobs_without_restarting_and_cleans_orphans(settings, tmp_path):
+    settings = replace(
+        settings, jobs_path=tmp_path / "history.sqlite3", recordings_dir=tmp_path / "recordings"
+    )
+    store = JobStore(settings.jobs_path)
+    store.save(
+        JobStatus(id="interrupted", state="running", stage="asr", progress=0.5, message="处理中")
+    )
+    store.close()
+    settings.recordings_dir.mkdir()
+    orphan = _write_wav(settings.recordings_dir / f"recording-{uuid4()}.webm")
+    unrelated = _write_wav(settings.recordings_dir / "user.webm")
+    with TestClient(create_app(settings)) as client:
+        data = client.get("/api/jobs/interrupted", headers=HEADERS).json()
+        assert data["state"] == "cancelled"
+        assert data["progress"] == 0.5
+        assert "上次退出" in data["message"]
+        assert not orphan.exists()
+        assert unrelated.is_file()
+        assert (
+            client.post(
+                "/api/jobs", headers=HEADERS, json={**_payload(unrelated), "recording": "temporary"}
+            ).status_code
+            == 400
+        )
+
+
 def test_create_rejects_missing_audio(settings, tmp_path):
     application = create_app(settings, job_runner=_segments)
     with TestClient(application) as client:
@@ -223,7 +333,7 @@ def test_translation_pipeline_uses_deepseek_translator(settings, tmp_path, monke
 
     translator = _FakeTranslator()
     manager = JobManager(settings, translator=translator)
-    monkeypatch.setattr("app.jobs.manager.decode_audio", lambda _path: Decoded())
+    monkeypatch.setattr("app.jobs.manager.decode_audio", lambda _path, **_kwargs: Decoded())
     monkeypatch.setattr(
         "app.jobs.manager.detect_speech", lambda *_args, **_kwargs: [SpeechSegment(0, 1000)]
     )
@@ -273,7 +383,7 @@ def test_pipeline_applies_glossary_without_touching_raw_text(settings, tmp_path,
         model = object()
 
     manager = JobManager(settings)
-    monkeypatch.setattr("app.jobs.manager.decode_audio", lambda _path: Decoded())
+    monkeypatch.setattr("app.jobs.manager.decode_audio", lambda _path, **_kwargs: Decoded())
     monkeypatch.setattr(
         "app.jobs.manager.detect_speech", lambda *_args, **_kwargs: [SpeechSegment(0, 1000)]
     )

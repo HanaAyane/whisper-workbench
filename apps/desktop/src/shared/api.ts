@@ -76,7 +76,7 @@ export interface Segment extends SegmentEdit {
   hits: TermHit[]
 }
 
-export interface JobStatus {
+export interface DesktopJob {
   id: string
   state: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
   stage: 'decode' | 'vad' | 'asr' | 'glossary' | 'export' | null
@@ -84,12 +84,12 @@ export interface JobStatus {
   message: string
   error: string | null
   segments: Segment[]
-}
-
-export interface DesktopJob extends JobStatus {
   name: string
   mode: 'transcribe' | 'translate'
-  recordedPath?: string
+  recorded_path: string | null
+  created_at: string
+  revision: number
+  cancel_requested: boolean
 }
 
 export interface AudioFile { id: string; name: string }

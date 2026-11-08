@@ -2,6 +2,7 @@
 fastapi==0.115.12
 pydantic==2.11.5
 uvicorn==0.34.2
+wsproto>=1.2,<2
 
 # Phase 2 音频解码、数组处理与本地 ONNX VAD。
 av>=14.0,<16

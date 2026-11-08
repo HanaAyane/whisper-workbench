@@ -2,13 +2,36 @@ import { spawn } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
+import type { DesktopJob } from '../shared/api.js'
 
-export class SidecarResponseError extends Error {}
+export class SidecarResponseError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
 
 export class SidecarConnection {
   ended = false
 
   constructor(private readonly port: number, private readonly token: string) {}
+
+  streamJob(id: string, onUpdate: (job: DesktopJob) => void) {
+    if (this.ended) return Promise.resolve()
+    const socket = new WebSocket(`ws://127.0.0.1:${this.port}/ws/jobs/${id}`, ['jp-workbench', this.token])
+    return new Promise<void>((resolve) => {
+      const timer = setTimeout(() => socket.close(), 5000)
+      socket.addEventListener('open', () => clearTimeout(timer), { once: true })
+      socket.addEventListener('close', () => {
+        clearTimeout(timer)
+        resolve()
+      }, { once: true })
+      socket.addEventListener('message', (event) => {
+        try {
+          onUpdate(JSON.parse(String(event.data)) as DesktopJob)
+        } catch {
+          socket.close()
+        }
+      })
+    })
+  }
 
   async request<T>(path: string, options: { method?: string; body?: unknown; text?: boolean } = {}): Promise<T> {
     if (this.ended) throw new Error('本地服务已停止。')
@@ -27,9 +50,10 @@ export class SidecarConnection {
     if (!response.ok) {
       const error: { detail?: unknown } = await response.json().catch(() => ({}))
       const detail = error.detail
-      if (typeof detail === 'string') throw new SidecarResponseError(detail)
-      if (response.status === 422) throw new SidecarResponseError('提交内容不符合要求，请检查填写的字段。')
-      throw new SidecarResponseError(`本地服务返回错误（${response.status}）。`)
+      const message = typeof detail === 'string' ? detail
+        : response.status === 422 ? '提交内容不符合要求，请检查填写的字段。'
+          : `本地服务返回错误（${response.status}）。`
+      throw new SidecarResponseError(message, response.status)
     }
     if (response.status === 204) return undefined as T
     return options.text ? await response.text() as T : await response.json() as T
@@ -40,7 +64,11 @@ export class Sidecar {
   private process?: { stop: () => void; closed: Promise<void> }
   private pending?: Promise<SidecarConnection>
 
-  constructor(private readonly root: string, private readonly packaged: boolean) {}
+  constructor(
+    private readonly root: string,
+    private readonly packaged: boolean,
+    private readonly dataDir: string,
+  ) {}
 
   connect(modelsDir?: string) {
     this.pending ??= this.start(modelsDir)
@@ -66,6 +94,8 @@ export class Sidecar {
       PYTHONIOENCODING: 'utf-8',
       JP_WORKBENCH_ROOT: process.env.JP_WORKBENCH_ROOT || this.root,
       JP_WORKBENCH_DESKTOP: '1',
+      JP_WORKBENCH_JOBS_DB: join(this.dataDir, 'jobs.sqlite3'),
+      JP_WORKBENCH_RECORDINGS_DIR: join(this.dataDir, 'tmp-recordings'),
       SIDECAR_TOKEN: token,
     }
     if (modelsDir) {
@@ -87,7 +117,7 @@ export class Sidecar {
         resolve()
       })
     })
-    this.process = { stop: () => { child.kill() }, closed }
+    this.process = { stop: () => { child.stdin.end(); child.kill() }, closed }
     child.stdin.on('error', () => {})
     child.stderr.resume()
 
@@ -104,7 +134,7 @@ export class Sidecar {
         }
         const timer = setTimeout(() => fail('本地服务启动超时，请检查 Python 环境。'), 30000)
         child.once('error', () => fail('无法启动本地服务，请检查项目 .venv 或 sidecar 程序。'))
-        child.once('close', () => fail('本地服务已退出，请检查 Python 环境和启动配置。'))
+        child.once('close', () => fail('本地服务已退出，请检查 Python 环境、任务数据库和启动配置。'))
         lines.on('line', (line) => {
           if (!line.startsWith('SIDECAR_READY ')) return
           try {

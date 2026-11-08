@@ -167,6 +167,7 @@ h11==0.16.0 \
     #   httpcore
     #   httpcore2
     #   uvicorn
+    #   wsproto
 hf-xet==1.8.0 \
     --hash=sha256:07a06d7481702616726c2d8578cfb00052a5b3f21beed6a674592bc837a10330 \
     --hash=sha256:10ed23b51dacf7917d64f335c25048deb470efa755e9989b218fc0531386138e \
@@ -719,4 +720,8 @@ typing-inspection==0.4.5 \
 uvicorn==0.34.2 \
     --hash=sha256:0e929828f6186353a80b58ea719861d2629d766293b6d19baf086ba31d4f3328 \
     --hash=sha256:deb49af569084536d269fe0a6d67e3754f104cf03aba7c11c40f01aadf33c403
+    # via -r backend/requirements.in
+wsproto==1.3.2 \
+    --hash=sha256:61eea322cdf56e8cc904bd3ad7573359a242ba65688716b0710a5eb12beab584 \
+    --hash=sha256:b86885dcf294e15204919950f666e06ffc6c7c114ca900b060d6e16293528294
     # via -r backend/requirements.in

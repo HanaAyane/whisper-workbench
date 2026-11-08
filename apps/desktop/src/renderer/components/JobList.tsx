@@ -11,23 +11,24 @@ export function JobList({ onError }: { onError(message: string): void }) {
   const jobs = useWorkbench((state) => state.jobs)
   const selected = useWorkbench((state) => state.selectedJob)
   const select = useWorkbench((state) => state.selectJob)
-  const [cancelled, setCancelled] = useState<Set<string>>(new Set())
-  const rows = Object.values(jobs).reverse()
+  const [cancelling, setCancelling] = useState<Set<string>>(new Set())
+  const rows = Object.values(jobs).sort((a, b) => b.created_at.localeCompare(a.created_at))
 
   async function cancel(id: string) {
-    setCancelled((ids) => new Set(ids).add(id))
+    setCancelling((ids) => new Set(ids).add(id))
     try {
       await window.api.cancelJob(id)
     } catch (error) {
-      setCancelled((ids) => new Set([...ids].filter((item) => item !== id)))
       onError(errorText(error))
+    } finally {
+      setCancelling((ids) => new Set([...ids].filter((item) => item !== id)))
     }
   }
 
   return <Glass className="jobs-panel">
     <div className="panel-heading">
       <div className="icon-tile"><ListChecks size={20} /></div>
-      <div><h2>任务列表</h2><p>当前会话 · {rows.length} 个任务</p></div>
+      <div><h2>任务列表</h2><p>本地历史 · {rows.length} 个任务</p></div>
     </div>
     {rows.length === 0 ? <div className="empty-jobs"><Hourglass size={23} /><strong>暂时没有任务</strong><p>开始处理后，进度会显示在这里。</p></div>
       : <ul className="job-items">{rows.map((job) => {
@@ -37,7 +38,7 @@ export function JobList({ onError }: { onError(message: string): void }) {
             <Icon size={18} className={`state-icon ${job.state}`} />
             <span><strong>{job.name}</strong><small>{states[job.state]} · {job.message}</small></span>
           </button>
-          {activeJob(job) && <button className="icon-button" title="取消任务" aria-label="取消任务" disabled={cancelled.has(job.id)} onClick={() => void cancel(job.id)}><X size={17} /></button>}
+          {activeJob(job) && <button className="icon-button" title="取消任务" aria-label="取消任务" disabled={job.cancel_requested || cancelling.has(job.id)} onClick={() => void cancel(job.id)}><X size={17} /></button>}
           {activeJob(job) && <progress max={1} value={job.progress} aria-label="任务进度" />}
         </li>
       })}</ul>}

@@ -17,6 +17,9 @@ interface WorkbenchState {
   setOutputDir(outputDir: string): void
 }
 
+const latest = (previous: DesktopJob | undefined, next: DesktopJob) =>
+  previous && previous.revision > next.revision ? previous : next
+
 export const useWorkbench = create<WorkbenchState>((set) => ({
   theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
   toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
@@ -24,11 +27,11 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
   selectedJob: null,
   selectJob: (selectedJob) => set({ selectedJob }),
   mergeJobs: (jobs) => set((state) => ({
-    jobs: { ...Object.fromEntries([...jobs].reverse().map((job) => [job.id, job])), ...state.jobs },
+    jobs: { ...state.jobs, ...Object.fromEntries(jobs.map((job) => [job.id, latest(state.jobs[job.id], job)])) },
     selectedJob: state.selectedJob ?? jobs[0]?.id ?? null,
   })),
   putJob: (job, select = false) => set((state) => ({
-    jobs: { ...state.jobs, [job.id]: job },
+    jobs: { ...state.jobs, [job.id]: latest(state.jobs[job.id], job) },
     selectedJob: select ? job.id : state.selectedJob,
   })),
   device: null,

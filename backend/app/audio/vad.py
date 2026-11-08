@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ import onnxruntime
 
 from app.audio.chunks import SpeechSegment
 from app.config import Settings
+from app.jobs.cancellation import JobCancelled
 
 LOGGER = logging.getLogger(__name__)
 ENERGY_FRAME_MS = 30
@@ -31,6 +33,7 @@ def detect_speech(
     min_silence_duration_ms: int = 100,
     speech_pad_ms: int = 200,
     energy_threshold: float = 0.01,
+    check_cancelled: Callable[[], None] | None = None,
 ) -> list[SpeechSegment]:
     """返回真实音频时间轴上的语音区间，所有末端均不超过输入时长。"""
 
@@ -56,9 +59,14 @@ def detect_speech(
         )
         try:
             detector = _WhisperOnnxVad(onnx_path, meta_path, feature_config_path)
-            probabilities, frame_ms = detector.predict(audio, sample_rate)
+            if check_cancelled is None:
+                probabilities, frame_ms = detector.predict(audio, sample_rate)
+            else:
+                probabilities, frame_ms = detector.predict(audio, sample_rate, check_cancelled)
+        except JobCancelled:
+            raise
         except Exception as exc:  # 外部模型/运行时异常统一降级，避免整个任务中断。
-            LOGGER.warning("ONNX VAD 不可用，改用能量阈值检测：%s", exc)
+            LOGGER.warning("ONNX VAD 不可用，改用能量阈值检测（%s）。", type(exc).__name__)
         else:
             return _probabilities_to_segments(
                 probabilities,
@@ -72,6 +80,8 @@ def detect_speech(
     else:
         LOGGER.info("ONNX VAD 已禁用，使用能量阈值检测。")
 
+    if check_cancelled is not None:
+        check_cancelled()
     probabilities = _energy_probabilities(audio, sample_rate, energy_threshold)
     return _probabilities_to_segments(
         probabilities,
@@ -216,7 +226,12 @@ class _WhisperOnnxVad:
             raise ValueError("Whisper VAD ONNX 必须只有一个输入。")
         self.input_name = inputs[0].name
 
-    def predict(self, audio: np.ndarray, sample_rate: int) -> tuple[np.ndarray, int]:
+    def predict(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        check_cancelled: Callable[[], None] | None = None,
+    ) -> tuple[np.ndarray, int]:
         if sample_rate != 16000:
             raise ValueError("Whisper ONNX VAD 要求 16000 Hz 单声道输入。")
         window_samples = self.total_duration_ms * sample_rate // 1000
@@ -227,6 +242,8 @@ class _WhisperOnnxVad:
 
         probabilities: list[np.ndarray] = []
         for offset in range(0, audio.size, window_samples):
+            if check_cancelled is not None:
+                check_cancelled()
             window = audio[offset : offset + window_samples]
             actual_samples = window.size
             if actual_samples < window_samples:

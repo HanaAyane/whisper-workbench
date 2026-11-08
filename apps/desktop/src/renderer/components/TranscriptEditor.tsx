@@ -63,7 +63,7 @@ export function TranscriptEditor({ job, onError }: { job?: DesktopJob; onError(m
       </div>
       {job && <span className="label-pill">{job.mode === 'translate' ? '日语 / 中文' : '日语'}</span>}
     </div>
-    {job?.recordedPath && <p className="saved-path">录音副本 · {job.recordedPath}</p>}
+    {job?.recorded_path && <p className="saved-path">录音副本 · {job.recorded_path}</p>}
     {empty ? <div className="empty-transcript"><Captions size={30} /><p>{note}</p></div>
       : <div className="segments">{job.segments.map((segment) =>
         <TranscriptRow key={`${job.id}-${segment.id}`} jobId={job.id} segment={segment} onError={onError} />,

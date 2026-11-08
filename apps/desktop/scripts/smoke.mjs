@@ -17,13 +17,24 @@ const mic = join(temporary, 'microphone.wav')
 const savePath = join(temporary, '字幕.srt')
 const userData = join(temporary, 'profile')
 let app
+const launch = () => _electron.launch({
+  executablePath: electron, args: ['.', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}`],
+  cwd: dir, env: { ...process.env, JP_WORKBENCH_SMOKE: '1', JP_WORKBENCH_VITE: '0',
+    JP_WORKBENCH_USER_DATA: userData, JP_WORKBENCH_GLOSSARY_DIR: join(temporary, 'glossary') },
+})
 try {
   execFileSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-i', audio, '-t', '10',
     '-ac', '1', '-ar', '48000', '-c:a', 'pcm_s16le', mic], { stdio: 'pipe', windowsHide: true })
-  app = await _electron.launch({
-    executablePath: electron, args: ['.', '--use-fake-device-for-media-stream', `--use-file-for-fake-audio-capture=${mic}`],
-    cwd: dir, env: { ...process.env, JP_WORKBENCH_SMOKE: '1', JP_WORKBENCH_VITE: '0',
-      JP_WORKBENCH_USER_DATA: userData, JP_WORKBENCH_GLOSSARY_DIR: join(temporary, 'glossary') },
+  app = await launch()
+  await app.evaluate(() => {
+    const NativeSocket = globalThis.WebSocket
+    globalThis.jobFrames = 0
+    globalThis.WebSocket = class extends NativeSocket {
+      constructor(...args) {
+        super(...args)
+        this.addEventListener('message', () => { globalThis.jobFrames++ })
+      }
+    }
   })
   const page = await app.firstWindow()
   const errors = []
@@ -68,7 +79,7 @@ try {
   await page.waitForFunction(() => window.api.listJobs().then((jobs) => jobs[0]?.state === 'succeeded'), undefined, { timeout: 120000 })
   await page.waitForFunction(() => document.querySelector('.job-row.selected')?.textContent.includes('已完成'))
   const recording = await page.evaluate(() => window.api.listJobs().then((jobs) => ({
-    count: jobs[0].segments.length, saved: jobs[0].recordedPath,
+    count: jobs[0].segments.length, saved: jobs[0].recorded_path,
   })))
   if (expectSpeech) {
     assert.ok(recording.count > 0, '模拟麦克风的日语样本应生成字幕')
@@ -119,6 +130,18 @@ try {
   else assert.equal(content, '')
   assert.deepEqual(errors, [])
   console.log(`通过：拖放本地音频（${job.segments.length} 段）、SRT 保存${job.segments.length ? '及字幕编辑保留原始结果' : ''}。`)
+  assert.ok(await app.evaluate(() => globalThis.jobFrames > 0), '应通过 WebSocket 收到任务状态')
+  await app.close()
+  app = await launch()
+  const reopened = await app.firstWindow()
+  await reopened.getByText('本地服务就绪', { exact: true }).waitFor()
+  await reopened.locator('.job-row').nth(1).waitFor()
+  const restored = await reopened.evaluate(() => window.api.listJobs())
+  assert.equal(restored.length, 2)
+  assert.equal(restored[0].id, job.id)
+  assert.ok(restored.every((item) => item.state === 'succeeded'))
+  if (job.segments.length) assert.equal(restored[0].segments[0].text, '検証用の字幕')
+  console.log('通过：桌面端收到 WebSocket 状态，应用重启后恢复历史任务和字幕。')
 } finally {
   if (app) await app.close()
   const location = relative(output, temporary)

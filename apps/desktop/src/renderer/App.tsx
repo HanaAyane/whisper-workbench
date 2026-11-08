@@ -36,21 +36,21 @@ export function App() {
     setConnection('loading')
     setNotice(null)
     try {
-      const [, models] = await Promise.all([window.api.health(), window.api.models(), refreshGlossaries()])
+      const [, models, jobs] = await Promise.all([window.api.health(), window.api.models(), window.api.listJobs(), refreshGlossaries()])
       setCatalog(models)
+      mergeJobs(jobs)
       setConnection('online')
     } catch (error) {
       setConnection('offline')
       onError(errorText(error))
     }
-  }, [onError, refreshGlossaries])
+  }, [mergeJobs, onError, refreshGlossaries])
 
   useEffect(() => {
     const unsubscribe = window.api.onJobUpdate(putJob)
-    void window.api.listJobs().then(mergeJobs).catch((error) => onError(errorText(error)))
     void refresh()
     return unsubscribe
-  }, [mergeJobs, onError, putJob, refresh])
+  }, [putJob, refresh])
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
 

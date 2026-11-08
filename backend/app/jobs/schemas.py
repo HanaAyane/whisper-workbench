@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class VadOptions(BaseModel):
@@ -21,6 +21,8 @@ class TranslationOptions(BaseModel):
 
 class JobRequest(BaseModel):
     input_path: str = Field(min_length=1)
+    name: str | None = Field(default=None, min_length=1, max_length=512)
+    recording: Literal["temporary", "retained"] | None = None
     mode: Literal["transcribe", "translate"] = "transcribe"
     asr_model_id: str = Field(min_length=1)
     translation: TranslationOptions = Field(default_factory=TranslationOptions)
@@ -43,8 +45,16 @@ class Segment(BaseModel):
     hits: list[dict[str, object]] = Field(default_factory=list)
 
 
+class SegmentEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    text: str
+    translation: str | None
+
+
 JobState = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 JobStage = Literal["decode", "vad", "asr", "glossary", "export"]
+ACTIVE_STATES = {"queued", "running"}
 
 
 class JobStatus(BaseModel):
@@ -56,3 +66,10 @@ class JobStatus(BaseModel):
     segments: list[Segment] = Field(default_factory=list)
     outputs: list[str] = Field(default_factory=list)
     error: str | None = None
+    name: str = ""
+    mode: Literal["transcribe", "translate"] = "transcribe"
+    recorded_path: str | None = None
+    created_at: str = ""
+    revision: int = 0
+    cancel_requested: bool = False
+    glossary_id: str | None = None

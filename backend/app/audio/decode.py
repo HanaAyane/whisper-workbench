@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,7 +31,9 @@ class DecodedAudio:
         return round(self.samples.size * 1000 / self.sample_rate)
 
 
-def decode_audio(input_path: str | Path) -> DecodedAudio:
+def decode_audio(
+    input_path: str | Path, *, check_cancelled: Callable[[], None] | None = None
+) -> DecodedAudio:
     """解码受支持的本地文件，不上传输入，也不保留中间音频副本。"""
 
     path = Path(input_path).expanduser()
@@ -48,6 +51,8 @@ def decode_audio(input_path: str | Path) -> DecodedAudio:
             if stream is None:
                 raise AudioDecodeError("输入文件不包含可解码的音频轨道。")
             for frame in container.decode(stream):
+                if check_cancelled is not None:
+                    check_cancelled()
                 decoded.extend(_frame_samples(frame, resampler))
             decoded.extend(_frame_samples(None, resampler))
     except AudioDecodeError:

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
+LOCAL_ORIGIN = r"http://127\.0\.0\.1(?::[0-9]+)?"
 
 
 def _path(name: str, default: Path, root: Path) -> Path:
@@ -23,6 +24,8 @@ class Settings:
     device: str = "auto"
     compute_type: str = "int8"
     token: str | None = None
+    jobs_path: Path | None = None
+    recordings_dir: Path | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -45,4 +48,8 @@ class Settings:
             device=device,
             compute_type=compute_type,
             token=token,
+            jobs_path=_path("JP_WORKBENCH_JOBS_DB", root / "data" / "jobs.sqlite3", root),
+            recordings_dir=_path(
+                "JP_WORKBENCH_RECORDINGS_DIR", root / "data" / "recordings-tmp", root
+            ),
         )
