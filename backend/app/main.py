@@ -14,15 +14,18 @@ from fastapi.responses import JSONResponse
 
 from app.api.health import VERSION
 from app.api.health import router as health_router
+from app.api.jobs import router as jobs_router
 from app.api.models import router as models_router
 from app.config import Settings
+from app.jobs.manager import JobManager, JobRunner
 
 logger = logging.getLogger("uvicorn.error")
 LOCAL_ORIGIN = r"http://127\.0\.0\.1(?::[0-9]+)?"
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, *, job_runner: JobRunner | None = None) -> FastAPI:
     config = settings if settings is not None else Settings.from_env()
+    job_manager = JobManager(config, job_runner=job_runner)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -31,9 +34,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # 仅通过本地进程 stdout 交付凭据，不通过 HTTP 暴露，不写业务日志。
             print("SIDECAR_TOKEN " + json.dumps({"token": application.state.token}), flush=True)
         logger.info("本地服务已启动；模型检查按需执行，不加载权重。")
-        yield
-        application.state.token = None
-        logger.info("本地服务已停止。")
+        try:
+            yield
+        finally:
+            job_manager.close()
+            application.state.token = None
+            logger.info("本地服务已停止。")
 
     application = FastAPI(
         title="日语语音工作台本地服务",
@@ -44,6 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url=None,
     )
     application.state.settings = config
+    application.state.job_manager = job_manager
 
     @application.middleware("http")
     async def local_auth(request: Request, call_next):
@@ -60,7 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.add_middleware(
         CORSMiddleware,
         allow_origin_regex=LOCAL_ORIGIN,
-        allow_methods=["GET"],
+        allow_methods=["GET", "POST"],
         allow_headers=["X-Sidecar-Token"],
         allow_credentials=False,
     )
@@ -74,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application.include_router(health_router, prefix="/api")
     application.include_router(models_router, prefix="/api")
+    application.include_router(jobs_router, prefix="/api")
     return application
 
 

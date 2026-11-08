@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-本轮完成 Phase 2 音频输入与处理（2.1–2.5）。日语转录、日中翻译、专名纠错、译名统一与字幕复核仍是后续主线；`[V1]` waveform peaks 及 Phase 3 以后功能不在本轮范围。
+本轮完成 Phase 3 ASR 接入（3.1–3.5）。日语转录主链路已打通；日中翻译的接口已保留但翻译模型缺失，未做真实验收。桌面 UI、术语表与字幕编辑仍是后续主线。
 
 ## 阶段进展
 
@@ -13,7 +13,7 @@
 | 0 项目初始化 | 完成 | 基础检查、Ruff、8 个文件校验测试、依赖兼容检查通过；模型检查按实际缺失返回 1 | 独立仓库、文档、忽略规则、Python 3.10 `.venv`、锁定依赖、模型检查脚本均已准备；缺模型明确报告路径，不下载 |
 | 1 Python Sidecar | 完成 | backend 目录 pytest：32 passed；实际 Uvicorn + curl、鉴权、CORS、监听地址验收通过 | 随机 token、受限 CORS、配置、health/models、错误路径及测试已实现；只监听 127.0.0.1 |
 | 2 音频处理 | 完成 | 音频/全量 pytest 通过；Ruff、仓库基础检查通过；6 种格式实际解码与本地 ONNX 只读烟雾通过 | 16 kHz 单声道 float32 解码、ONNX 优先/能量回退、≤30 秒切块、任务临时目录清理；`[V1]` waveform peaks 未做 |
-| 3 ASR/翻译 | 未开始 | 不适用 | 未加载模型或转录样本 |
+| 3 ASR/翻译 | 完成（3.1–3.5） | 全量 pytest 79 passed；真实日语样本 30 秒冒烟与真实 API 任务通过；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs 与 smoke 脚本已实现；翻译模型缺失，`translate` 模式未真实验收 |
 | 4 术语引擎 | 未开始 | 不适用 | 尚无实现 |
 | 5 Electron/React | 未开始 | 不适用 | 尚无前端项目 |
 | 6 队列/持久化 | 未开始 | 不适用 | 按实际需求推进 |
@@ -28,7 +28,8 @@
 - 系统默认 Python 3.12.7（Anaconda）未用于项目依赖。通过 uv 安装 Python 3.10.21 并创建项目 `.venv`，没有修改系统默认版本，无 Python 版本偏离。
 - Phase 1 所需的 FastAPI 0.115.12、Pydantic 2.11.5、Uvicorn 0.34.2、HTTPX 0.28.1、pytest 8.3.5、Ruff 0.11.11 已预先安装。
 - Phase 2 新增 PyAV 15.1.0、NumPy 2.2.6、ONNX Runtime 1.23.2（含传递依赖）；全部 33 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。系统 `ffmpeg 8.1` 可用于生成测试样本，解码本身走 PyAV。
-- ASR/打包依赖将在对应阶段安装；本轮不宣称 faster-whisper/CTranslate2、GPU/CUDA 或 ASR 推理兼容性已验证。
+- Phase 3 新增 faster-whisper 1.2.1、CTranslate2 4.8.5 及其传递依赖；全部 45 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。`ctranslate2.get_cuda_device_count()` 返回 1，支持 `bfloat16/float16/float32/int8*`。
+- 打包依赖将在 Phase 9 安装；本轮不宣称 PyInstaller/安装包或 macOS 兼容性已验证。
 
 ## Phase 0 验收记录
 
@@ -63,13 +64,27 @@
 - 本地 ONNX 只读烟雾：以旧项目 `models/whisper_vad.onnx` + metadata 解码 `data/demo/sample.wav` 并推理成功，6 秒音频末段未越界；正弦波被判为非语音，返回空区间，未冒充语音识别结果。
 - 审查：指定的独立审查子代理两次异常/失败无输出，未据此写成已审查；改由 Lead 人工复核代码与差异，未发现阻塞问题。
 
+## Phase 3 验收记录
+
+- 在 `feat/asr-integration` 分支实现 `asr/model_manager.py`、`asr/whisper_backend.py`、`jobs/schemas.py`、`jobs/manager.py`、`api/jobs.py` 与 `scripts/smoke_transcribe.py`，覆盖 3.1–3.5；3.6 的批量/流式属 `[V1]`，未实现。
+- 本地 `models/manifest.json` 已将 `whisper-ja-1.5B` 指到用户确认的旧项目 `faster_whisper_transwithai/models`（本地绝对路径仅写入被忽略的 manifest，只读引用，不复制权重、不进 Git）；`chickenrice-v2` 目录仍缺失。健康接口因此保持 `models_ok=false`，如实反映并非所有模型齐全。
+- 真实加载：`ModelManager.load("whisper-ja-1.5B")` 在 RTX 4070 上以 `cuda/bfloat16` 成功初始化并卸载；未下载任何权重。
+- 真实日语样本：用户提供的本地 MP3（144.9 秒，被 `.gitignore` 忽略）。取前 30 秒临时片段验收，不复制原文件、不提交、不在文档记录原文。结果 4 段，首段 `00:00:00,840 → 00:00:09,140`、末段 `00:00:28,200 → 00:00:29,980`，全部文本非空，共 91 字符；临时音频与 SRT 用后删除。
+- 真实 API：用会话随机 token 调用 `POST /api/jobs` 返回 202（`job-20261108-001`，初始 running/decode），轮询 `GET /api/jobs/{id}` 最终 `succeeded`、`progress=1.0`、4 段、`error=null`；与脚本结果一致。
+- 完整长音频：同一 144.9 秒样本完整运行，检测语音 115.0 秒、17 个 ≤30 秒推理块、17 段；首段 `00:00:00,840 → 00:00:09,160`、末段 `00:02:15,280 → 00:02:23,220`，全部非空；GPU 显存无溢出，进程正常结束。
+- AGENT 固定验收示例使用合成 `data/demo/sample.wav`；该正弦波在真实模型上返回 0 段（属预期），不能证明日语转写，因此以用户提供的真实日语样本作为 ASR 验收素材，并在 README 说明差异。
+- `TMPDIR=<项目>/data/tmp .venv/Scripts/python.exe -m pytest -q`：79 passed（新增 17 项 `test_asr.py` / `test_jobs.py`，覆盖模型清单/设备/精度/缓存、时间戳偏移与裁剪、任务成功/失败/404/鉴权/CORS）。1 条 Starlette TestClient 第三方弃用警告，未隐藏。
+- Ruff 静态/格式、仓库基础检查通过；未做批次并发、取消、WebSocket、持久化或打包验收。
+- 翻译模式：JobRequest 与 `translate_spans()` 接口存在，但本地无翻译模型；请求会返回明确中文错误，未冒充已支持日中翻译。
+
 ## 环境故障与处理
 
 首次 pytest 在测试 setup 阶段遇到系统临时目录权限问题，8 个用例未执行。改用项目内的 `data/tmp` 作为 TMPDIR 后，8 个测试通过。复现命令见 README。
 
 ## 遗留与下一步
 
-- Phase 0、Phase 1、Phase 2 已完成；Phase 3 及以后未开始。
-- 模型文件仍缺失；有确认的模型身份/目录后编辑本地 manifest，重新运行校验。本轮只对旧项目 VAD 做只读 ONNX 烟雾，不复制权重、不运行 ASR。
-- Phase 2 未实现 `[V1]` waveform peaks；能量阈值只是回退，不代表真实日语语音的 VAD 准确率。
+- Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）已完成；Phase 4 及以后未开始。
+- ASR 模型可用；翻译模型 `chickenrice-v2` 仍缺失，补齐目录并确认身份后再做日中翻译真实验收。
+- 本地 manifest 使用用户确认的绝对路径；换机器时需编辑本地被忽略的 `models/manifest.json`。
+- Phase 2 未实现 `[V1]` waveform peaks；Phase 3 未实现批量任务、流式转写、取消、WebSocket 与持久化。
 - 未创建远程仓库，未推送、发布或打标签。

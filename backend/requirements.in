@@ -8,6 +8,10 @@ av>=14.0,<16
 numpy>=2.0,<3
 onnxruntime>=1.21,<2
 
+# Phase 3 本地 ASR/翻译推理（faster-whisper 基于 CTranslate2，不需要 torch）。
+faster-whisper==1.2.1
+ctranslate2>=4.5.0
+
 # 开发检查与 API 测试。
 httpx==0.28.1
 pytest==8.3.5

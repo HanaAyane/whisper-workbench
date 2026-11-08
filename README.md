@@ -4,11 +4,11 @@
 
 ## 当前范围
 
-当前已完成 Phase 0、Phase 1 和 Phase 2：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块及任务临时目录清理。模型资产检查只判断文件是否存在，不代表 ASR 模型可推理。桌面、ASR、词表和字幕功能尚未实现；waveform peaks 是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
+当前已完成 Phase 0、Phase 1、Phase 2 和 Phase 3（3.1–3.5）的代码实现：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块、任务临时目录清理，以及本地 faster-whisper ASR 与任务状态机。真实日语样本的转写验收仍待完成。模型资产检查只判断文件是否存在，不代表 ASR 模型可推理。桌面 UI、词表和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
 
 ## 环境与依赖
 
-已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime 和检查工具；faster-whisper/CTranslate2 等在 Phase 3 引入，不提前安装 ASR 推理依赖。
+已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime、faster-whisper 1.2.1、CTranslate2 4.8.5 和检查工具。真实 ASR 加载与推理已在 RTX 4070（CUDA，bfloat16）上验证；翻译模型尚未提供。
 
 项目使用 `.venv`。有 Python 3.10 和 pip 时，在项目根目录执行（PowerShell）：
 
@@ -55,7 +55,7 @@ python scripts/verify_models.py
 uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
 
-默认每次启动生成随机 token，通过本地 stdout 的 `SIDECAR_TOKEN {"token":"..."}` 行交付。请求时使用 `X-Sidecar-Token` header。不要把该行重定向到共享日志。服务只提供 `/api/health` 与 `/api/models`，不会加载模型或联网；内置入口 `python -m app.main` 也固定监听 `127.0.0.1:8765`。手工启动 Uvicorn 时同样保留上述环回 host。
+默认每次启动生成随机 token，通过本地 stdout 的 `SIDECAR_TOKEN {"token":"..."}` 行交付。请求时使用 `X-Sidecar-Token` header。不要把该行重定向到共享日志。服务提供 `/api/health`、`/api/models`、`POST /api/jobs` 与 `GET /api/jobs/{id}`；健康/模型接口不会加载模型或联网，任务接口只在执行时加载本地权重。内置入口 `python -m app.main` 固定监听 `127.0.0.1:8765`。手工启动 Uvicorn 时同样保留上述环回 host。
 
 为运行 AGENT 中固定 `dev` 的验收示例，必须显式设置开发 token，不存在默认开发后门：
 
@@ -76,8 +76,8 @@ curl.exe -H "X-Sidecar-Token: dev" http://127.0.0.1:8765/api/health
 | `JP_WORKBENCH_MODELS_DIR` | `<项目根>/models`；改变默认清单所在目录 |
 | `JP_WORKBENCH_MANIFEST` | `<模型目录>/manifest.json`；清单内相对模型路径仍以项目根解析 |
 | `JP_WORKBENCH_TEMP_DIR` | `<项目根>/data/tmp`；Phase 2 任务临时目录的根目录 |
-| `JP_WORKBENCH_DEVICE` | `auto`；允许 `auto/cpu/cuda`，尚未加载设备 |
-| `JP_WORKBENCH_COMPUTE_TYPE` | `int8`；允许 `int8/int8_float16/float16/bfloat16`，尚未验证推理 |
+| `JP_WORKBENCH_DEVICE` | `auto`；`auto` 优先 CUDA，无 GPU 时用 CPU |
+| `JP_WORKBENCH_COMPUTE_TYPE` | `int8`；模型清单中的 `compute_type` 优先，README 记录的 ASR 验证值为 `bfloat16` |
 | `SIDECAR_TOKEN` | 未设置时随机生成；显式非空 ASCII 值供开发/未来主进程传入 |
 
 ## 音频处理（Phase 2）
@@ -97,6 +97,29 @@ python scripts/make_demo_assets.py --out data/demo
 ```
 
 该命令生成 6 秒 `sample.wav` 与 `sample.txt`。音频只有正弦波和静音，文本如实描述信号，**不是日语语音或 ASR 参照转录**；生成资源均被 Git 忽略。
+
+## ASR 接入（Phase 3）
+
+`app.asr.model_manager.ModelManager` 读取本地 `models/manifest.json`，校验必需文件后按 `device`（`auto/cpu/cuda`）与模型 `compute_type` 加载 `faster_whisper.WhisperModel`，并设置 `local_files_only=True`，不会下载权重。模型按 `(id, device, compute_type)` 缓存，`unload()` 释放。设备自动选择优先 CUDA；不支持的计算类型会返回中文错误并列出可用值。
+
+`app.asr.whisper_backend.recognize_chunks()` 对 Phase 2 产生的 ≤30 秒块逐块推理，把块内时间戳换算为全局毫秒并裁剪到块边界；`translate_spans()` 为翻译模型保留逐段音频翻译接口。ASR 模型已在 RTX 4070（cuda/bfloat16）完成加载与合成音频推理；真实日语样本转写验收待完成。翻译模型缺失时翻译模式会明确报错。
+
+任务接口（内存态，重启后不保留；持久化/取消/WebSocket 留待 Phase 6）：
+
+```text
+POST /api/jobs           创建任务，返回 202 与 JobStatus
+GET  /api/jobs/{job_id}  查询状态、进度、阶段与 segments
+```
+
+`JobRequest` / `JobStatus` / `Segment` 遵循 AGENT.md 6.2/6.6/6.3：时间均为毫秒整数，`raw_text/raw_translation` 保存首次模型输出，`text/translation` 是可编辑副本。任务为单 worker 顺序执行，状态 `queued → running → succeeded/failed`；`export_formats` 暂被接受但不生成文件，正式导出在 Phase 7。
+
+冒烟命令（会真实加载本地模型；`--no-vad-onnx` 可强制能量 VAD）：
+
+```powershell
+python scripts/smoke_transcribe.py --audio data/demo/sample.wav --model whisper-ja-1.5B
+```
+
+模型与设备会打印到终端；输出默认写在音频同目录的 `.srt`。合成正弦波在真实模型上返回 0 段属正常结果，**不能**作为日语转写验收。
 
 ## 开发检查
 
