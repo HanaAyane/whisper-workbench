@@ -1,6 +1,7 @@
 export const mediaExtensions = ['wav', 'mp3', 'm4a', 'flac', 'mp4', 'mkv', 'webm']
 export const exportFormats = ['srt', 'vtt', 'lrc', 'txt'] as const
 export type ExportFormat = (typeof exportFormats)[number]
+export type OverwritePolicy = 'preserve' | 'replace'
 export type GlossaryFormat = 'json' | 'csv'
 export type Field = 'text' | 'translation'
 export type Policy = 'correct' | 'translate' | 'keep'
@@ -65,7 +66,19 @@ export interface TermHit {
 
 export interface Preview { text: string; replaced_text: string; hits: TermHit[] }
 export interface GlossaryResult { glossary_id: string; entry_count: number; warnings: string[] }
-export interface SegmentEdit { text: string; translation: string | null }
+export interface SegmentEdit { text: string; translation: string | null; revision: number }
+
+export interface ReviewHit extends TermHit {
+  decision: 'pending' | 'accepted' | 'rejected'
+  original_text: string | null
+}
+
+export type SegmentReview = {
+  revision: number
+} & (
+  | { action: 'accept' | 'reject'; hit: Pick<TermHit, 'entry_id' | 'field' | 'start' | 'end'> }
+  | { action: 'undo' }
+)
 
 export interface Segment extends SegmentEdit {
   id: number
@@ -73,7 +86,7 @@ export interface Segment extends SegmentEdit {
   end: number
   raw_text: string
   raw_translation: string | null
-  hits: TermHit[]
+  hits: ReviewHit[]
 }
 
 export interface DesktopJob {
@@ -114,7 +127,8 @@ export interface WorkbenchApi {
   listJobs(): Promise<DesktopJob[]>
   cancelJob(jobId: string): Promise<void>
   updateSegment(jobId: string, segmentId: number, edit: SegmentEdit): Promise<void>
-  exportJob(jobId: string, format: ExportFormat): Promise<string | null>
+  reviewSegment(jobId: string, segmentId: number, decision: SegmentReview): Promise<void>
+  exportJob(jobId: string, format: ExportFormat, policy: OverwritePolicy): Promise<string | null>
   onJobUpdate(callback: (job: DesktopJob) => void): () => void
   pickModelDirectory(): Promise<ModelCatalog | null>
   pickOutputDirectory(): Promise<string | null>

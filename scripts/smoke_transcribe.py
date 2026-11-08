@@ -12,21 +12,11 @@ from app.audio.chunks import merge_speech_segments
 from app.audio.decode import decode_audio
 from app.audio.vad import detect_speech
 from app.config import Settings
-
-
-def _timestamp(milliseconds: int) -> str:
-    hours, remainder = divmod(max(milliseconds, 0), 3_600_000)
-    minutes, remainder = divmod(remainder, 60_000)
-    seconds, millis = divmod(remainder, 1_000)
-    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}"
+from app.export.writers import render_srt
 
 
 def write_srt(spans: list[tuple[int, int, str]], path: Path) -> None:
-    blocks = [
-        f"{index}\n{_timestamp(start)} --> {_timestamp(end)}\n{text}\n"
-        for index, (start, end, text) in enumerate(spans, start=1)
-    ]
-    path.write_text("\n".join(blocks), encoding="utf-8")
+    path.write_text(render_srt(spans), encoding="utf-8")
 
 
 def main() -> int:

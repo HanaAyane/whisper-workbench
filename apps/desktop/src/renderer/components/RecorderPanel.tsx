@@ -184,7 +184,7 @@ export function RecorderPanel({ models, glossaries, connected, onCreated, onErro
     </div>
     <div className="capture-footer">
       <p className={mode === 'translate' ? 'privacy-warning' : 'muted'}>{mode === 'translate'
-        ? '提交后，待翻译字幕文本会发送至 DeepSeek（api.deepseek.com）。音频仍在本地处理。'
+        ? '提交后，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。音频在本地处理。'
         : '音频仅在本机处理 · 默认使用本地转录'}</p>
       <button className="primary" disabled={busy || !connected || !modelId || (!file && !recording)} onClick={() => void submit()}>
         <Plus size={17} /> {submitting ? '正在提交' : '开始处理'}

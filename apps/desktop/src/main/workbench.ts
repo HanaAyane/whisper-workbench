@@ -1,26 +1,32 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { dialog, type BrowserWindow } from 'electron'
 import { exportFormats, mediaExtensions } from '../shared/api.js'
 import type {
-  DesktopJob, ExportFormat, JobInput, JobOptions, ModelCatalog, SegmentEdit,
+  DesktopJob, ExportFormat, JobInput, JobOptions, ModelCatalog, OverwritePolicy, SegmentEdit, SegmentReview,
 } from '../shared/api.js'
 import { Sidecar, SidecarResponseError, type SidecarConnection } from './sidecar.js'
-import { formatSubtitles } from './subtitles.js'
+import { writeExportFile } from './export-file.js'
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024
+const TEMP_RECORDING = /^recording-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.webm$/
 const active = (job: DesktopJob) => job.state === 'running' || job.state === 'queued'
 const jobPath = (id: string) => {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('任务 ID 无效。')
   return `/jobs/${id}`
+}
+const segmentPath = (jobId: string, id: number) => {
+  if (!Number.isSafeInteger(id) || id < 0) throw new Error('字幕片段 ID 无效。')
+  return `${jobPath(jobId)}/segments/${id}`
 }
 
 export class Workbench {
   readonly sidecar: Sidecar
   private readonly files = new Map<string, string>()
   private readonly watching = new Set<string>()
+  private readonly recordingWrites = new Set<Promise<void>>()
   private modelsDir?: string
   private outputDir?: string
   private submissions = 0
@@ -156,20 +162,43 @@ export class Workbench {
   }
 
   async updateSegment(id: string, segmentId: number, edit: SegmentEdit) {
-    if (!Number.isSafeInteger(segmentId) || segmentId < 0) throw new Error('字幕片段 ID 无效。')
-    const job = await (await this.connect()).request<DesktopJob>(`${jobPath(id)}/segments/${segmentId}`, {
+    const job = await (await this.connect()).request<DesktopJob>(segmentPath(id, segmentId), {
       method: 'PATCH', body: edit,
     })
     this.publish(job)
   }
 
-  async exportJob(id: string, format: ExportFormat) {
+  async reviewSegment(id: string, segmentId: number, decision: SegmentReview) {
+    const job = await (await this.connect()).request<DesktopJob>(`${segmentPath(id, segmentId)}/review`, {
+      method: 'POST', body: decision,
+    })
+    this.publish(job)
+  }
+
+  async exportJob(id: string, format: ExportFormat, policy: OverwritePolicy) {
     if (!exportFormats.includes(format)) throw new Error('字幕格式无效。')
-    const value = await (await this.connect()).request<DesktopJob>(jobPath(id))
+    if (policy !== 'preserve' && policy !== 'replace') throw new Error('覆盖策略无效。')
+    const connection = await this.connect()
+    const path = jobPath(id)
+    const value = await connection.request<DesktopJob>(path)
     if (value.state !== 'succeeded') throw new Error('任务完成后才能导出字幕。')
-    const name = value.name.replace(/\.[^./\\]+$/, '').replace(/[<>:"/\\|?*]/g, '-')
-    const content = formatSubtitles(value.segments, format)
-    return this.saveTextFile(`${name}.${format}`, content)
+    const name = value.name.replace(/\.[^./\\]+$/, '').replace(/[<>:"/\\|?*]/g, '-') || '字幕'
+    const selected = await this.chooseSavePath(`${name}.${format}`, '选择字幕保存位置')
+    if (!selected) return null
+    const target = extname(selected) ? selected : `${selected}.${format}`
+    if (extname(target).toLowerCase() !== `.${format}`) throw new Error('文件扩展名必须和所选字幕格式一致。')
+    const content = await connection.request<string>(`${path}/export`, {
+      method: 'POST', body: { format }, text: true,
+    })
+    try {
+      await writeExportFile(target, content, policy === 'replace')
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'EEXIST') {
+        throw new Error('同名文件已存在。请换一个文件名，或选择允许覆盖。', { cause: error })
+      }
+      throw new Error('无法保存字幕，请检查目录权限或磁盘空间。', { cause: error })
+    }
+    return target
   }
 
   async saveTextFile(name: string, content: string) {
@@ -180,20 +209,32 @@ export class Workbench {
     if (!['srt', 'vtt', 'lrc', 'txt', 'csv', 'json'].includes(extension)) {
       throw new Error('不支持保存这种文件。')
     }
+    const target = await this.chooseSavePath(name, '保存本地文件')
+    if (!target) return null
+    await writeFile(target, content, 'utf8').catch(() => { throw new Error('无法写入所选文件，请检查目录权限。') })
+    return target
+  }
+
+  private async chooseSavePath(name: string, title: string) {
+    const extension = extname(name).slice(1)
     const result = await dialog.showSaveDialog(this.window(), {
-      title: '保存本地文件',
+      title,
       defaultPath: this.outputDir ? join(this.outputDir, name) : name,
       filters: [{ name: extension.toUpperCase(), extensions: [extension] }],
     })
-    if (result.canceled || !result.filePath) return null
-    const target = result.filePath
-    await writeFile(target, content, 'utf8').catch(() => { throw new Error('无法写入所选文件，请检查目录权限。') })
-    return target
+    return result.canceled ? null : result.filePath
   }
 
   async close() {
     this.closing = true
     await this.sidecar.stop()
+    await Promise.allSettled(this.recordingWrites)
+    const folder = join(this.dataDir, 'tmp-recordings')
+    if (!(await lstat(folder).catch(() => null))?.isDirectory()) return
+    const files = await readdir(folder, { withFileTypes: true }).catch(() => [])
+    await Promise.all(files
+      .filter((file) => file.isFile() && TEMP_RECORDING.test(file.name))
+      .map((file) => this.removeRecording(join(folder, file.name))))
   }
 
   private window() {
@@ -221,11 +262,15 @@ export class Workbench {
     await mkdir(folder, { recursive: true })
     if (this.closing) throw new Error('工作台正在关闭。')
     const path = join(folder, `recording-${id}.webm`)
+    const writing = writeFile(path, Buffer.from(input.data), { flag: 'wx' })
+    this.recordingWrites.add(writing)
     try {
-      await writeFile(path, Buffer.from(input.data), { flag: 'wx' })
+      await writing
     } catch {
       if (!input.keep) await this.removeRecording(path)
       throw new Error('无法保存本地录音。')
+    } finally {
+      this.recordingWrites.delete(writing)
     }
     return { path, keep: input.keep }
   }

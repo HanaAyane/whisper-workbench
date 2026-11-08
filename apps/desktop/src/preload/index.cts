@@ -14,7 +14,8 @@ const api: WorkbenchApi = {
   listJobs: () => ipcRenderer.invoke('list-jobs'),
   cancelJob: (id) => ipcRenderer.invoke('cancel-job', id),
   updateSegment: (id, segmentId, edit) => ipcRenderer.invoke('update-segment', id, segmentId, edit),
-  exportJob: (id, format) => ipcRenderer.invoke('export-job', id, format),
+  reviewSegment: (id, segmentId, decision) => ipcRenderer.invoke('review-segment', id, segmentId, decision),
+  exportJob: (id, format, policy) => ipcRenderer.invoke('export-job', id, format, policy),
   onJobUpdate: (callback) => {
     const listener = (_event: Electron.IpcRendererEvent, job: DesktopJob) => callback(job)
     ipcRenderer.on('job-update', listener)

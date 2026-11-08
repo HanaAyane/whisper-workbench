@@ -16,10 +16,10 @@ export function activeJob(job: DesktopJob) {
   return job.state === 'queued' || job.state === 'running'
 }
 
-export function highlightedParts(text: string, hits: TermHit[]) {
+export function highlightedParts<Hit extends TermHit>(text: string, hits: Hit[]) {
   const letters = Array.from(text)
   let cursor = 0
-  const parts: { text: string; hit?: TermHit }[] = []
+  const parts: { text: string; hit?: Hit }[] = []
   for (const hit of [...hits].sort((a, b) => a.start - b.start)) {
     const matched = letters.slice(hit.start, hit.end).join('')
     if (hit.start < cursor || hit.end > letters.length || matched !== hit.matched_text) continue

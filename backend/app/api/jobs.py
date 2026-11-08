@@ -5,10 +5,19 @@ import re
 import secrets
 
 from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import PlainTextResponse
 
 from app.asr.model_manager import ModelError
 from app.config import LOCAL_ORIGIN
-from app.jobs.schemas import ACTIVE_STATES, JobRequest, JobStatus, SegmentEdit
+from app.export.writers import render_subtitles
+from app.jobs.schemas import (
+    ACTIVE_STATES,
+    ExportRequest,
+    JobRequest,
+    JobStatus,
+    SegmentEdit,
+    SegmentReview,
+)
 
 router = APIRouter()
 ws_router = APIRouter()
@@ -54,6 +63,32 @@ def update_segment(
         raise HTTPException(status_code=404, detail="找不到任务或字幕片段。") from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/jobs/{job_id}/segments/{segment_id}/review", response_model=JobStatus)
+def review_segment(
+    job_id: str, segment_id: int, payload: SegmentReview, request: Request
+) -> JobStatus:
+    try:
+        return request.app.state.job_manager.review_segment(job_id, segment_id, payload)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="找不到任务或字幕片段。") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/jobs/{job_id}/export", response_class=PlainTextResponse)
+def export_job(job_id: str, payload: ExportRequest, request: Request) -> PlainTextResponse:
+    try:
+        job = request.app.state.job_manager.get_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="找不到任务。") from exc
+    if job.state != "succeeded":
+        raise HTTPException(status_code=409, detail="任务完成后才能导出字幕。")
+    return PlainTextResponse(
+        render_subtitles(job.segments, payload.format),
+        media_type="text/vtt" if payload.format == "vtt" else "text/plain",
+    )
 
 
 @ws_router.websocket("/ws/jobs/{job_id}")

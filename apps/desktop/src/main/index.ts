@@ -53,6 +53,7 @@ function installIpc() {
   handle('list-jobs', () => workbench.listJobs())
   handle('cancel-job', workbench.cancelJob.bind(workbench))
   handle('update-segment', workbench.updateSegment.bind(workbench))
+  handle('review-segment', workbench.reviewSegment.bind(workbench))
   handle('export-job', workbench.exportJob.bind(workbench))
   handle('pick-model-directory', () => workbench.pickModelDirectory())
   handle('pick-output-directory', () => workbench.pickOutputDirectory())

@@ -360,7 +360,7 @@ def test_translation_pipeline_uses_deepseek_translator(settings, tmp_path, monke
     assert segments[0].translation == "译文0"
 
 
-def test_pipeline_applies_glossary_without_touching_raw_text(settings, tmp_path, monkeypatch):
+def test_pipeline_proposes_glossary_without_touching_raw_text(settings, tmp_path, monkeypatch):
     audio = _write_wav(tmp_path / "sample.wav")
     GlossaryStore(settings).save(
         "demo",
@@ -399,15 +399,190 @@ def test_pipeline_applies_glossary_without_touching_raw_text(settings, tmp_path,
         ),
     )
 
-    request = JobRequest(
-        input_path=str(audio),
-        mode="transcribe",
-        asr_model_id="synthetic-test",
-        glossary_id="demo",
-    )
-    segments = manager._run_pipeline(request, lambda *_args: None)
+    with TestClient(create_app(settings, job_runner=manager._run_pipeline)) as client:
+        status = (
+            client.post(
+                "/api/jobs",
+                headers=HEADERS,
+                json={**_payload(audio), "glossary_id": "demo"},
+            )
+            .raise_for_status()
+            .json()
+        )
+        segment = _wait(client, status["id"])["segments"][0]
     manager.close()
+    assert segment["raw_text"] == segment["text"] == "田中さん"
+    assert segment["hits"][0]["entry_id"] == "term-001"
+    assert segment["hits"][0]["decision"] == "pending"
 
-    assert segments[0].raw_text == "田中さん"
-    assert segments[0].text == "田中太郎さん"
-    assert segments[0].hits[0]["entry_id"] == "term-001"
+
+def test_review_persists_and_exports_saved_bilingual_segments(settings, tmp_path):
+    media = _write_wav(tmp_path / "sample.wav")
+    glossaries = GlossaryStore(settings)
+    glossaries.save(
+        "demo",
+        [
+            GlossaryEntry(id="jp", source="田中", target="田中太郎", policy="correct"),
+            GlossaryEntry(
+                id="zh", source="渋谷", target="涩谷", field="translation", policy="translate"
+            ),
+            GlossaryEntry(id="keep", source="さん", policy="keep"),
+        ],
+    )
+    raw_text, raw_translation = "🎙田中さん と 田中", "在渋谷见面"
+
+    def runner(_request, _report):
+        return [
+            Segment(
+                id=0,
+                start=1200,
+                end=3000,
+                raw_text=raw_text,
+                text=raw_text,
+                raw_translation=raw_translation,
+                translation=raw_translation,
+            )
+        ]
+
+    def decision(client, path, segment, action, *, hit=None):
+        payload = {"action": action, "revision": segment["revision"]}
+        if hit is not None:
+            payload["hit"] = {key: hit[key] for key in ("entry_id", "field", "start", "end")}
+        return client.post(path + "/review", json=payload, headers=HEADERS)
+
+    with TestClient(
+        create_app(settings, job_runner=runner, translator=_FakeTranslator())
+    ) as client:
+        created = (
+            client.post(
+                "/api/jobs",
+                headers=HEADERS,
+                json={**_payload(media), "glossary_id": "demo", "mode": "translate"},
+            )
+            .raise_for_status()
+            .json()
+        )
+        segment = _wait(client, created["id"])["segments"][0]
+        assert (segment["text"], segment["translation"]) == (raw_text, raw_translation)
+        first, keep, second, chinese = segment["hits"]
+        assert (first["start"], first["end"], keep["policy"]) == (1, 3, "keep")
+        path = f"/api/jobs/{created['id']}/segments/0"
+        assert decision(client, path, segment, "accept", hit=keep).status_code == 409
+        rejected = (
+            decision(client, path, segment, "reject", hit=second)
+            .raise_for_status()
+            .json()["segments"][0]
+        )
+        assert rejected["text"] == raw_text
+        assert decision(client, path, segment, "accept", hit=first).status_code == 409
+        segment = (
+            decision(client, path, rejected, "accept", hit=first)
+            .raise_for_status()
+            .json()["segments"][0]
+        )
+        assert segment["text"] == "🎙田中太郎さん と 田中"
+        assert [hit["decision"] for hit in segment["hits"]] == [
+            "accepted",
+            "pending",
+            "rejected",
+            "pending",
+        ]
+        segment = (
+            decision(client, path, segment, "accept", hit=chinese)
+            .raise_for_status()
+            .json()["segments"][0]
+        )
+        assert segment["translation"] == "在涩谷见面"
+        edit = {
+            "text": "冒頭 " + segment["text"],
+            "translation": segment["translation"],
+            "revision": segment["revision"],
+        }
+        assert (
+            client.patch(path, headers=HEADERS, json={**edit, "raw_text": "篡改"}).status_code
+            == 422
+        )
+        segment = (
+            client.patch(path, headers=HEADERS, json=edit).raise_for_status().json()["segments"][0]
+        )
+        assert segment["hits"][0]["start"] == 4
+        assert segment["hits"][0]["matched_text"] == "田中太郎"
+    glossaries.delete("demo")
+
+    with TestClient(create_app(settings)) as client:
+        restored = client.get(f"/api/jobs/{created['id']}", headers=HEADERS).json()["segments"][0]
+        assert restored == segment
+        segment = decision(client, path, restored, "undo").raise_for_status().json()["segments"][0]
+        assert segment["translation"] == raw_translation
+        assert segment["text"] == "冒頭 🎙田中太郎さん と 田中"
+        segment = decision(client, path, segment, "undo").raise_for_status().json()["segments"][0]
+        assert segment["text"] == "冒頭 " + raw_text
+        assert [hit["decision"] for hit in segment["hits"]] == [
+            "pending",
+            "pending",
+            "rejected",
+            "pending",
+        ]
+        assert (segment["raw_text"], segment["raw_translation"]) == (raw_text, raw_translation)
+        assert decision(client, path, segment, "undo").status_code == 409
+        for format, timestamp in [
+            ("srt", "00:00:01,200 --> 00:00:03,000"),
+            ("vtt", "00:00:01.200 --> 00:00:03.000"),
+            ("lrc", "[00:01.20]"),
+            ("txt", ""),
+        ]:
+            response = client.post(
+                f"/api/jobs/{created['id']}/export", headers=HEADERS, json={"format": format}
+            ).raise_for_status()
+            assert "charset=utf-8" in response.headers["content-type"]
+            assert timestamp in response.text
+            assert segment["text"] in response.text
+            assert segment["translation"] in response.text
+
+
+def test_legacy_subtitle_migration_recalculates_offsets_without_resetting_edits(settings, tmp_path):
+    settings = replace(settings, jobs_path=tmp_path / "legacy.sqlite3")
+    GlossaryStore(settings).save(
+        "legacy",
+        [
+            GlossaryEntry(id="jp", source="田中", target="田中太郎", policy="correct"),
+        ],
+    )
+    job = JobStatus(
+        id="legacy",
+        state="succeeded",
+        stage="export",
+        progress=1,
+        message="完成",
+        glossary_id="legacy",
+        segments=[
+            Segment(
+                id=0,
+                start=0,
+                end=1000,
+                raw_text="田中",
+                text="🎙田中",
+                hits=[
+                    {
+                        "entry_id": "jp",
+                        "field": "text",
+                        "start": 0,
+                        "end": 2,
+                        "matched_text": "田中",
+                        "replacement": "田中太郎",
+                        "policy": "correct",
+                    }
+                ],
+            )
+        ],
+    )
+    store = JobStore(settings.jobs_path)
+    store.save(job)
+    store.close()
+    with TestClient(create_app(settings)) as client:
+        result = client.get("/api/jobs/legacy", headers=HEADERS).raise_for_status().json()
+        assert result["segments"][0]["raw_text"] == "田中"
+        assert result["segments"][0]["text"] == "🎙田中"
+        assert result["segments"][0]["hits"][0]["start"] == 1
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/api/jobs/legacy", headers=HEADERS).json() == result

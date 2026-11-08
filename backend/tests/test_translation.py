@@ -67,6 +67,17 @@ def test_config_requires_key(tmp_path, monkeypatch):
         DeepSeekConfig.from_settings(_settings(tmp_path))
 
 
+@pytest.mark.parametrize(
+    "url",
+    ["http://127.0.0.10:8000", "http://127.0.0.1.example.test", "https://user:pass@example.test"],
+)
+def test_config_rejects_unsafe_destinations(tmp_path, monkeypatch, url):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+    monkeypatch.setenv("DEEPSEEK_BASE_URL", url)
+    with pytest.raises(TranslationNotConfiguredError, match="DEEPSEEK_BASE_URL"):
+        DeepSeekConfig.from_settings(_settings(tmp_path))
+
+
 def test_translate_preserves_order_and_sends_expected_payload():
     requests = []
 

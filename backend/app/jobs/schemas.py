@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.glossary.models import TermHit
+
+ExportFormat = Literal["srt", "vtt", "lrc", "txt"]
+SegmentField = Literal["text", "translation"]
 
 
 class VadOptions(BaseModel):
@@ -30,8 +35,14 @@ class JobRequest(BaseModel):
     glossary_id: str | None = "default"
     device: Literal["auto", "cpu", "cuda"] | None = None
     compute_type: Literal["int8", "int8_float16", "float16", "bfloat16"] | None = None
-    export_formats: list[Literal["srt", "vtt", "lrc", "txt"]] = Field(default_factory=list)
+    export_formats: list[ExportFormat] = Field(default_factory=list)
     vad: VadOptions = Field(default_factory=VadOptions)
+
+
+class ReviewHit(TermHit):
+    decision: Literal["pending", "accepted", "rejected"] = "pending"
+    original_text: str | None = None
+    applied_revision: int = 0
 
 
 class Segment(BaseModel):
@@ -42,7 +53,8 @@ class Segment(BaseModel):
     raw_translation: str | None = None
     text: str
     translation: str | None = None
-    hits: list[dict[str, object]] = Field(default_factory=list)
+    hits: list[ReviewHit] = Field(default_factory=list)
+    revision: int = 0
 
 
 class SegmentEdit(BaseModel):
@@ -50,6 +62,30 @@ class SegmentEdit(BaseModel):
 
     text: str
     translation: str | None
+    revision: int = Field(ge=0)
+
+
+class HitSelection(BaseModel):
+    entry_id: str
+    field: SegmentField
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+
+
+class SegmentReview(BaseModel):
+    action: Literal["accept", "reject", "undo"]
+    revision: int = Field(ge=0)
+    hit: HitSelection | None = None
+
+    @model_validator(mode="after")
+    def check_selection(self) -> SegmentReview:
+        if (self.action == "undo") != (self.hit is None):
+            raise ValueError("接受或拒绝时必须指定命中，撤销时只需要指定片段。")
+        return self
+
+
+class ExportRequest(BaseModel):
+    format: ExportFormat
 
 
 JobState = Literal["queued", "running", "succeeded", "failed", "cancelled"]

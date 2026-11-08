@@ -15,6 +15,7 @@ from collections.abc import Callable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -65,13 +66,27 @@ class DeepSeekConfig:
                 "未配置 DeepSeek API Key：请在项目 .env 或环境变量 DEEPSEEK_API_KEY 中设置。"
             )
         base_url = (
-            os.environ.get("DEEPSEEK_BASE_URL")
-            or dotenv.get("DEEPSEEK_BASE_URL")
-            or DEFAULT_BASE_URL
-        ).rstrip("/")
-        if not (base_url.startswith("https://") or base_url.startswith("http://127.0.0.1")):
+            (
+                os.environ.get("DEEPSEEK_BASE_URL")
+                or dotenv.get("DEEPSEEK_BASE_URL")
+                or DEFAULT_BASE_URL
+            )
+            .strip()
+            .rstrip("/")
+        )
+        try:
+            destination = urlsplit(base_url)
+            allowed = destination.hostname and (
+                destination.scheme == "https"
+                or (destination.scheme == "http" and destination.hostname == "127.0.0.1")
+            )
+        except ValueError:
+            allowed = False
+        if not allowed or any(
+            (destination.username, destination.password, destination.query, destination.fragment)
+        ):
             raise TranslationNotConfiguredError(
-                "DEEPSEEK_BASE_URL 必须是 https:// 或以 http://127.0.0.1 开头的本地地址。"
+                "DEEPSEEK_BASE_URL 必须使用 HTTPS 或本机 127.0.0.1，且只能包含服务地址和路径。"
             )
         model = (
             os.environ.get("DEEPSEEK_MODEL") or dotenv.get("DEEPSEEK_MODEL") or DEFAULT_MODEL

@@ -1,23 +1,26 @@
 import { strict as assert } from 'node:assert'
+import { mkdtemp, readFile, readdir, rm, rmdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
-import { formatSubtitles } from '../src/main/subtitles.ts'
+import { writeExportFile } from '../src/main/export-file.ts'
 import { highlightedParts } from '../src/renderer/format.ts'
-import type { Segment, TermHit } from '../src/shared/api.ts'
+import type { TermHit } from '../src/shared/api.ts'
 
-test('导出读取编辑后的双语字幕，忽略空片段并连续编号', () => {
-  const segment: Segment = {
-    id: 3, start: 3612345, end: 3614260, raw_text: 'モデル原文', raw_translation: '模型译文',
-    text: '編集済み', translation: '当前译文', hits: [],
+test('字幕导出保护同名文件，并能按明确策略替换 UTF-8 文件', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-export-'))
+  const output = join(directory, '字幕.srt')
+  try {
+    await writeExportFile(output, '既存字幕', false)
+    await assert.rejects(writeExportFile(output, '编辑済み', false), { code: 'EEXIST' })
+    assert.equal(await readFile(output, 'utf8'), '既存字幕')
+    await writeExportFile(output, '編集済み\n当前译文', true)
+    assert.equal(await readFile(output, 'utf8'), '編集済み\n当前译文')
+    assert.deepEqual(await readdir(directory), ['字幕.srt'])
+  } finally {
+    await rm(output, { force: true })
+    await rmdir(directory)
   }
-  assert.equal(
-    formatSubtitles([{ ...segment, text: '', translation: ' ' }, segment], 'srt'),
-    '1\n01:00:12,345 --> 01:00:14,260\n編集済み\n当前译文\n',
-  )
-  assert.equal(formatSubtitles([{ ...segment, text: '<タグ> & 文' }], 'vtt'),
-    'WEBVTT\n\n01:00:12.345 --> 01:00:14.260\n&lt;タグ&gt; &amp; 文\n当前译文\n')
-  assert.equal(formatSubtitles([segment], 'lrc'), '[60:12.34]編集済み\n[60:12.34]当前译文\n')
-  assert.equal(formatSubtitles([segment], 'txt'), '編集済み\n当前译文\n')
-  assert.equal(formatSubtitles([], 'srt'), '')
 })
 
 test('命中高亮按 Python Unicode 字符位置切分，并跳过失效位置', () => {

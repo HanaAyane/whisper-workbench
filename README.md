@@ -59,14 +59,15 @@ pnpm --dir apps/desktop dev
 首次运行会取得锁定版本的 Electron。开发脚本优先让 Vite 监听 `127.0.0.1:5173`，端口不可用时切换到系统分配的环回端口。Electron 主进程随后启动本地 Python 服务，并通过私有管道取得其环回端口。令牌只在主进程和 Python 服务中使用。也可执行 `pnpm --dir apps/desktop build` 后运行 `pnpm --dir apps/desktop start`，加载构建后的界面。
 
 - 在「新建转录」录制约 10 秒日语或拖入媒体，再点「开始处理」。任务按提交顺序运行，任务栏通过 WebSocket 显示阶段和进度。排队时可立即取消，运行中会在下一个安全检查点停止。
-- 转录完成后在「字幕复核」并排查看模型输出和当前字幕。点「编辑」再「保存」，导出会使用已保存的当前字幕。纯静音或合成正弦波可能生成空 SRT。
+- 转录完成后在「字幕复核」并排查看模型输出和当前字幕。可以手改并保存、逐条接受或拒绝术语建议，也可以撤销最近一次仍可撤销的替换。纯静音或合成正弦波可能生成空 SRT。
+- 导出时先选择字幕格式和覆盖策略，再通过保存对话框确认目录与文件名。默认保护已有同名文件。
 - 在「术语表」导入 `examples/glossary.demo.json`，用 `田中さんと渋谷で会いました` 验证高亮和替换预览。也可以直接维护词条，或导出 CSV/JSON。
 - 在「设置」选择含 `manifest.json` 的目录、推理设备、计算类型和默认导出目录。设置在当前会话生效，任务与已保存字幕会在重启后恢复。
-- 录音在任务结束后清理。勾选「保留录音副本」会在 Electron 用户数据目录的 `recordings/` 保留 WebM，任务详情会显示保存路径。
+- 临时录音在任务完成、失败、取消或正常退出时清理。异常退出留下的临时录音会在下次启动时清理。勾选「保留录音副本」会在 Electron 用户数据目录的 `recordings/` 保留 WebM，任务详情会显示保存路径。
 
 导航、录音面板、任务栏和导出条使用本地打包的 Glasswork v1.1.0 MIT 样式和 Chromium 折射。背景是项目内的矢量图与渐变，浅色和深色均提供降低透明度时的实底材质。来源见 [Glasswork v1.1.0](https://github.com/kubai087/glasswork/tree/v1.1.0)。
 
-Windows 桌面烟雾脚本需要 ffmpeg、已配置的 ASR 模型和生产构建。默认使用 `data/demo/sample.wav` 的合成信号，可以将 `JP_WORKBENCH_SMOKE_AUDIO` 设为本地日语音频，以额外验证非空转录与字幕编辑。脚本使用模拟麦克风，浅色与深色截图保存至被忽略的 `data/desktop-smoke/`。
+Windows 桌面烟雾脚本需要 ffmpeg、已配置的 ASR 模型和生产构建。默认使用 `data/demo/sample.wav` 的合成信号。将 `JP_WORKBENCH_SMOKE_AUDIO` 设为本地日语音频，可额外验证非空转录、模拟翻译、术语复核和字幕编辑。脚本使用模拟麦克风和环回翻译 mock，浅色与深色截图保存至被忽略的 `data/desktop-smoke/`。
 
 ```powershell
 python scripts/make_demo_assets.py --out data/demo
@@ -223,7 +224,23 @@ Copy-Item examples/glossary.demo.json data/glossary/demo.json
 python scripts/glossary_demo.py --text "田中さんと渋谷で会いました" --glossary data/glossary/demo.json
 ```
 
-`app.glossary.replacer.apply_to_segment()` 返回 Segment 副本，只改 `text/translation`，`raw_text/raw_translation` 永远保持首次模型输出；命中记录写入 `hits`。任务处理中若 `glossary_id` 指向存在的词表，会自动应用并返回 `hits`。
+词表预览显示匹配位置和预期替换。任务用选中的词表生成待复核的 `hits`，转录完成时的字幕与首次模型输出一致。
+
+## 字幕复核与导出（Phase 7）
+
+日语原文纠错和中文译名统一分别作用于对应字段。接受建议会修改当前字幕，拒绝会留下标记并保留原词。只高亮的命中会显示在当前字幕上。手工编辑后重新匹配受影响的字段，并调整仍有效的复核位置。撤销作用于该片段中最近一次仍有效的已接受替换。
+
+任务保存当时使用的词表快照，以便重启后继续复核。升级 Phase 6 的历史库时，应用保留已保存的字幕和原始结果，并以当时可读取的词表重新匹配已保存字幕。新增编辑或复核操作会校验片段的 `revision`，以防止旧位置或旧草稿覆盖最新版本。
+
+```text
+PATCH /api/jobs/{job_id}/segments/{id}        保存 text、translation 和当前 revision
+POST  /api/jobs/{job_id}/segments/{id}/review 提交 action、revision 和命中定位
+POST  /api/jobs/{job_id}/export               提交 format，返回已保存字幕的 UTF-8 内容
+```
+
+接受或拒绝时使用 `accept` 或 `reject`，并在 `hit` 中传入 `entry_id`、`field`、`start`、`end`。撤销使用 `undo`，只需传片段版本。时间轴使用毫秒。WebVTT 会转义文本中的标记字符，LRC 使用开始时间和百分秒。双语片段按原文、译文顺序写出。
+
+桌面端通过系统保存对话框取得路径，默认用排他创建保护同名文件。允许覆盖时先写入同目录的临时文件，再替换目标。导出读取数据库中已经保存的编辑结果。
 
 ## 开发检查
 

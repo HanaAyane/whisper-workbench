@@ -67,7 +67,8 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
         </select></label>
       </div>
       <div className="privacy-box"><ShieldCheck size={20} /><div><strong>本地转录</strong>
-        <p>音频始终留在本机。选择 DeepSeek 翻译时，待翻译字幕文本会发送至 api.deepseek.com。API Key 由本地 .env 或环境变量提供。</p>
+        <p>音频始终留在本机。选择 DeepSeek 翻译时，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。API Key 由本地 .env 或环境变量提供。</p>
+        <p>历史任务、原始字幕和已保存编辑存放在本机任务库。</p>
       </div></div>
     </section>
   </div>

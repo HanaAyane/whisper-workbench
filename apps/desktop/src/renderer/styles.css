@@ -176,7 +176,13 @@ progress { grid-column: 1 / -1; width: calc(100% - 16px); height: 8px; margin: 2
 .stack { display: grid; gap: 6px; margin-top: 5px; }
 .saved-path { font-size: 12px; overflow-wrap: anywhere; color: var(--muted); margin-bottom: 10px; }
 .hit-list { display: flex; flex-wrap: wrap; gap: 5px; padding: 0; list-style: none; margin-top: 8px; }
-.hit-list li { border-radius: 7px; background: var(--accent-soft); color: var(--accent-ink); padding: 3px 7px; font-size: 11px; overflow-wrap: anywhere; }
+.hit-list li { display: flex; align-items: center; gap: 8px; border-radius: 9px; background: var(--accent-soft); color: var(--accent-ink); padding: 4px 8px; font-size: 12px; overflow-wrap: anywhere; }
+.hit-list button { min-height: 26px; padding: 2px 7px; font-size: 11px; }
+.hit-list .button-row { gap: 4px; }
+.review-label { margin-inline-start: 7px; font-weight: 700; }
+.review-label.accepted { color: var(--status); }
+.term-accepted { background: var(--quiet); color: var(--status); text-decoration: underline; }
+.term-rejected { background: var(--quiet); color: var(--muted); text-decoration: underline dotted; }
 .export-bar { --radius: 17; display: flex; justify-content: space-between; align-items: center; padding: 10px 14px; }
 .export-label > svg { color: var(--accent-ink); }
 .export-label strong { font-size: 13px; }

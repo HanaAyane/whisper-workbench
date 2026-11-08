@@ -20,11 +20,11 @@ from app.audio.chunks import merge_speech_segments
 from app.audio.decode import SUPPORTED_SUFFIXES, AudioDecodeError, decode_audio
 from app.audio.vad import detect_speech
 from app.config import Settings
-from app.glossary.models import GlossaryNotFoundError, GlossaryValidationError
-from app.glossary.replacer import apply_to_segment
+from app.glossary.models import GlossaryEntry, GlossaryNotFoundError, GlossaryValidationError
 from app.glossary.store import GlossaryStore
 from app.jobs.cancellation import JobCancelled
-from app.jobs.schemas import JobRequest, JobStage, JobStatus, Segment, SegmentEdit
+from app.jobs.review import edit_text, propose, review
+from app.jobs.schemas import JobRequest, JobStage, JobStatus, Segment, SegmentEdit, SegmentReview
 from app.storage.jobs import JobStore
 from app.translation.deepseek import DeepSeekConfig, DeepSeekTranslator, TranslationError
 
@@ -95,6 +95,18 @@ class JobManager:
                     for job in interrupted
                 )
             )
+            for job in self._store.without_review_snapshot():
+                # 迁移只按已保存的副本重新匹配，避免沿用旧版的原文位置。
+                try:
+                    entries = self._load_glossary(job.glossary_id) if job.segments else []
+                except (GlossaryValidationError, OSError):
+                    logger.warning("历史词表无法读取，已保留当前字幕。")
+                    entries = []
+                self._update(
+                    job,
+                    entries=entries,
+                    segments=[propose(segment, entries) for segment in job.segments],
+                )
             self._started = True
         except Exception:
             self._store.close()
@@ -157,6 +169,28 @@ class JobManager:
             return self._store.list()
 
     def update_segment(self, job_id: str, segment_id: int, edit: SegmentEdit) -> JobStatus:
+        return self._change_segment(
+            job_id,
+            segment_id,
+            edit.revision,
+            lambda segment, entries: edit_text(segment, edit, entries),
+        )
+
+    def review_segment(self, job_id: str, segment_id: int, decision: SegmentReview) -> JobStatus:
+        return self._change_segment(
+            job_id,
+            segment_id,
+            decision.revision,
+            lambda segment, entries: review(segment, decision, entries),
+        )
+
+    def _change_segment(
+        self,
+        job_id: str,
+        segment_id: int,
+        revision: int,
+        change: Callable[[Segment, list[GlossaryEntry]], Segment],
+    ) -> JobStatus:
         with self._lock:
             job = self._store.get(job_id)
             if job.state != "succeeded":
@@ -164,10 +198,13 @@ class JobManager:
             for index, segment in enumerate(job.segments):
                 if segment.id != segment_id:
                     continue
-                if (segment.raw_translation is None) != (edit.translation is None):
-                    raise ValueError("译文字段与任务模式不符。")
+                if segment.revision != revision:
+                    raise ValueError("这个片段已更新，请重新读取后再保存。")
+                updated = change(segment, self._store.glossary(job_id))
+                if updated == segment:
+                    return job
                 segments = job.segments.copy()
-                segments[index] = segment.model_copy(update=edit.model_dump())
+                segments[index] = updated.model_copy(update={"revision": revision + 1})
                 return self._update(job, segments=segments)
             raise KeyError(segment_id)
 
@@ -209,9 +246,11 @@ class JobManager:
                 self._cancel_events[job_id].set()
             return job
 
-    def _update(self, job: JobStatus, **changes) -> JobStatus:
+    def _update(
+        self, job: JobStatus, *, entries: list[GlossaryEntry] | None = None, **changes
+    ) -> JobStatus:
         value = job.model_copy(update={**changes, "revision": job.revision + 1})
-        self._store.save(value)
+        self._store.save(value, entries=entries)
         for notify in self._listeners.get(job.id, ()):
             notify(value)
         return value
@@ -254,12 +293,20 @@ class JobManager:
 
         error = None
         segments: list[Segment] = []
+        entries: list[GlossaryEntry] = []
         try:
             check_cancelled()
             if self._runner is None:
                 segments = self._run_pipeline(request, report, check_cancelled)
             else:
                 segments = self._runner(request, report)
+            if segments and request.glossary_id:
+                report(0.92, "glossary", "正在生成术语建议")
+                entries = self._load_glossary(request.glossary_id)
+                for index, segment in enumerate(segments):
+                    check_cancelled()
+                    segments[index] = propose(segment, entries)
+            report(0.98, "export", "正在保存任务结果")
         except JobCancelled:
             cancelled.set()
         except Exception as exc:
@@ -277,7 +324,12 @@ class JobManager:
             else:
                 message = "处理完成" if segments else "处理完成（无语音段）"
                 self._update(
-                    job, state="succeeded", message=message, progress=1.0, segments=segments
+                    job,
+                    state="succeeded",
+                    message=message,
+                    progress=1.0,
+                    segments=segments,
+                    entries=entries,
                 )
 
     def _run_pipeline(
@@ -305,8 +357,7 @@ class JobManager:
         )
         chunks = merge_speech_segments(speech, max_duration_ms=30000)
         if not chunks:
-            report(0.95, "glossary", "未检测到语音，跳过后处理")
-            report(1.0, "export", "处理完成（无语音段）")
+            report(0.9, "vad", "未检测到语音，跳过后处理")
             return []
 
         report(0.24, "asr", "正在加载本地模型")
@@ -368,19 +419,6 @@ class JobManager:
                     translation=translation,
                 )
             )
-        if request.glossary_id:
-            try:
-                entries = GlossaryStore(self.settings).load(request.glossary_id)
-            except GlossaryNotFoundError:
-                report(0.94, "glossary", "未找到词表，跳过词表处理")
-            else:
-                if entries:
-                    report(0.92, "glossary", f"正在应用词表（{len(entries)} 条）")
-                    segments = [
-                        Segment(**apply_to_segment(segment.model_dump(), entries))
-                        for segment in segments
-                    ]
-        report(0.98, "export", "正在保存任务结果")
         logger.info(
             "任务处理完成：音频 %d 毫秒，语音 %d 毫秒，%d 段。",
             decoded.duration_ms,
@@ -388,6 +426,14 @@ class JobManager:
             len(segments),
         )
         return segments
+
+    def _load_glossary(self, glossary_id: str | None) -> list[GlossaryEntry]:
+        if glossary_id is not None:
+            try:
+                return GlossaryStore(self.settings).load(glossary_id)
+            except GlossaryNotFoundError:
+                pass
+        return []
 
     def _translation_config(self, request: JobRequest) -> DeepSeekConfig:
         config = DeepSeekConfig.from_settings(self.settings)
