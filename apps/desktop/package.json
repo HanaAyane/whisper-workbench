@@ -5,10 +5,13 @@
   "type": "module",
   "main": "dist-electron/main/index.js",
   "packageManager": "pnpm@11.21.0",
-  "engines": { "node": ">=24" },
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "node scripts/dev.mjs",
     "build": "tsc -p tsconfig.main.json && vite build",
+    "dist": "pnpm build && node scripts/package-sidecar.mjs && electron-builder --publish never",
     "start": "electron .",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.json --noEmit",
@@ -28,6 +31,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^5.1.0",
     "electron": "45.2.3",
+    "electron-builder": "26.18.0",
     "eslint": "^10.14.0",
     "playwright": "^1.56.0",
     "typescript": "~5.9.3",

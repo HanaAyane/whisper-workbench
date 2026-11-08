@@ -1,6 +1,8 @@
+import { mkdirSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from 'electron'
+import { APP_NAME } from '../shared/api.js'
 import type { Field, Glossary, GlossaryFormat } from '../shared/api.js'
 import { Workbench } from './workbench.js'
 
@@ -9,9 +11,14 @@ const devPort = Number.isInteger(configuredPort) && configuredPort > 0 && config
 const DEV_URL = `http://127.0.0.1:${devPort}`
 const dev = !app.isPackaged && process.env.JP_WORKBENCH_VITE === '1'
 const smoke = !app.isPackaged && process.env.JP_WORKBENCH_SMOKE === '1'
-if (!app.isPackaged && process.env.JP_WORKBENCH_USER_DATA) {
-  app.setPath('userData', resolve(process.env.JP_WORKBENCH_USER_DATA))
-}
+app.setName(APP_NAME)
+app.setAppUserModelId('io.github.hanaayane.whisperworkbench')
+const profileOverride = (!app.isPackaged && process.env.JP_WORKBENCH_USER_DATA)
+  || app.commandLine.getSwitchValue('user-data-dir')
+// 保留开发版已经使用的内部目录，改名后仍可读取同一份本地历史。
+const profile = profileOverride ? resolve(profileOverride) : join(app.getPath('appData'), 'jp-voice-workbench')
+mkdirSync(profile, { recursive: true })
+app.setPath('userData', profile)
 
 const rendererDir = join(app.getAppPath(), 'dist')
 const indexPath = join(rendererDir, 'index.html')
@@ -56,6 +63,7 @@ function installIpc() {
   handle('review-segment', workbench.reviewSegment.bind(workbench))
   handle('export-job', workbench.exportJob.bind(workbench))
   handle('pick-model-directory', () => workbench.pickModelDirectory())
+  handle('open-model-directory', () => workbench.openModelDirectory())
   handle('pick-output-directory', () => workbench.pickOutputDirectory())
   handle('list-glossaries', async () => (await request<{ glossaries: Glossary[] }>('/glossary')).glossaries)
   handle('read-glossary', (id: string) => request(glossaryExport(id, 'json')))
@@ -79,7 +87,7 @@ function createWindow() {
     minWidth: 780,
     minHeight: 660,
     backgroundColor: '#e5eaf7',
-    title: '日语语音工作台',
+    title: APP_NAME,
     show: !smoke,
     webPreferences: {
       preload: join(app.getAppPath(), 'dist-electron', 'preload', 'index.cjs'),
@@ -137,7 +145,10 @@ if (!app.requestSingleInstanceLock()) {
     window?.focus()
   })
   app.on('window-all-closed', () => app.quit())
-  void app.whenReady().then(() => {
+  void app.whenReady().then(async () => {
+    await workbench.initialize(app.isPackaged ? join(process.resourcesPath, 'manifest.example.json') : undefined)
+      .catch(() => console.warn('无法准备默认模型清单，请在设置中选择已有模型目录。'))
+    if (stopping) return
     restrictSession()
     installIpc()
     createWindow()

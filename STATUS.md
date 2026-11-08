@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-Phase 6 和 Phase 7 已完成。Electron 通过 WebSocket 接收队列状态，SQLite 保存历史和已复核字幕。用户可以手改、逐条接受或拒绝术语建议、撤销替换，并从保存的版本导出四种格式。
+Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 打包交付。安装版和便携版均包含冻结的本地 sidecar，并在首次启动检查模型。按用户要求跳过 Phase 8。
 
 ## 阶段进展
 
@@ -18,8 +18,8 @@ Phase 6 和 Phase 7 已完成。Electron 通过 WebSocket 接收队列状态，S
 | 5 Electron/React | 完成（5.1–5.6） | Windows Electron 开发启动、生产界面烟雾、录音与拖放转写、词表导入预览、字幕编辑与 SRT 导出。前端检查通过，pytest 113 passed | 使用模拟麦克风输入本地日语样本。任务与编辑为会话态 |
 | 6 队列/持久化 | 完成（6.1–6.5） | pytest 115 项通过。Electron 合成音频烟雾验证真实 WebSocket 与重启恢复 | SQLite、FIFO、协作取消、受鉴权的推送与中文故障提示 |
 | 7 编辑/导出/隐私 | 完成（7.1–7.5） | pytest 121 项通过。Windows Electron 真实本地 ASR、模拟翻译、术语复核、四格式导出、覆盖与重启通过 | 数据库保留原始输出、当前字幕和复核决定。翻译与文件对话框使用受控验收环境 |
-| 8 测试/评测 | 未开始 | 不适用 | 尚无业务或真实模型评测 |
-| 9 打包交付 | 未开始 | 不适用 | 尚无安装包或跨平台验收 |
+| 8 测试/评测 | 按用户要求跳过 | 不适用 | Phase 9 只做打包验收 |
+| 9 打包交付 | 完成（9.1–9.7） | Windows x64 安装、启动、卸载、便携版启动、冻结 sidecar 真实转录与 SRT 导出通过 | Windows 包为未签名本地构建。macOS 提供手动构建工作流 |
 
 ## 环境与兼容性
 
@@ -30,7 +30,7 @@ Phase 6 和 Phase 7 已完成。Electron 通过 WebSocket 接收队列状态，S
 - Phase 2 新增 PyAV 15.1.0、NumPy 2.2.6、ONNX Runtime 1.23.2（含传递依赖）；全部 33 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。系统 `ffmpeg 8.1` 可用于生成测试样本，解码本身走 PyAV。
 - Phase 3 新增 faster-whisper 1.2.1、CTranslate2 4.8.5 及其传递依赖；全部 45 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。`ctranslate2.get_cuda_device_count()` 返回 1，支持 `bfloat16/float16/float32/int8*`。
 - Phase 4 新增 pyahocorasick 2.3.1（多模式匹配，失败时可回退纯 Python find）；全部 46 个依赖及哈希锁定，`uv pip check` 通过。
-- 打包依赖将在 Phase 9 安装；本轮不宣称 PyInstaller/安装包或 macOS 兼容性已验证。
+- Phase 9 使用 PyInstaller 6.22.3 和 Electron Builder 26.18.0。构建依赖已单独锁定，Python 环境的 53 个包通过兼容检查。
 - DeepSeek 翻译复用已有 `httpx 0.28.1`，未新增第三方 SDK；`.env` 由项目内简单解析，未新增 python-dotenv。
 
 ## Phase 0 验收记录
@@ -124,9 +124,17 @@ Phase 6 和 Phase 7 已完成。Electron 通过 WebSocket 接收队列状态，S
 - 临时录音在任务结束或正常退出时清理，异常退出后在下次启动时清理。显式保留的录音副本在任务详情中可见。设置页说明本地存储范围与启用 DeepSeek 后的文本外发。
 - Python pytest 121 项通过，依赖兼容检查、Ruff、前端 lint、严格类型检查、2 项单测、生产构建和仓库基础检查通过。
 
+## Phase 9 验收记录
+
+- `pnpm --dir apps/desktop build` 和 `pnpm --dir apps/desktop dist` 成功。Windows x64 产物位于 `apps/desktop/release/`，NSIS 安装包 181.8 MiB，便携版 163.4 MiB，校验值见该目录的 `SHA256SUMS.txt`。
+- NSIS 在隔离目录完成静默安装、启动和卸载。便携 EXE 实际启动后连接冻结 sidecar，显示首启缺失模型提示。三个界面截图来自 Windows 打包版。
+- 首启自动准备默认模型清单。「打开模型目录」和选择外部清单通过桌面验收。重启恢复选择的模型目录和任务历史。改名后沿用现有用户数据目录。
+- 打包版使用既有本地日语样本的 30 秒片段，冻结 sidecar 生成 4 段字幕并导出 SRT。测试使用受控文件对话框路径和独立用户目录。
+- Python pytest 121 项通过。前端 lint、严格类型检查、2 项单测、生产构建、Ruff 和仓库基础检查通过。macOS arm64 的锁定轮子解析通过，DMG/ZIP 构建和运行待在 macOS 上验收。
+
 ## 遗留与下一步
 
-- Phase 0–7 已完成。Phase 8 的评测和 Phase 9 的安装包待开发。
+- Phase 0–7 和 Phase 9 已完成。Phase 8 按用户要求跳过。
 - Phase 4 的 regex/fuzzy 属 V1、mask 属 STRETCH，均未实现；导入时会明确拒绝，不影响 exact 范围验收。
 - Phase 3 的 DeepSeek 翻译已真实跑通，真实翻译质量与专名一致性仍需按样本继续评估。
 - Phase 2 的 `[V1]` waveform peaks、Phase 3 的批量任务和流式转写、Phase 5 的自动保存草稿仍待开发。

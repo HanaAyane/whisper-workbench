@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
-import { basename, extname, join } from 'node:path'
+import { constants } from 'node:fs'
+import { copyFile, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { dialog, type BrowserWindow } from 'electron'
+import { dialog, shell, type BrowserWindow } from 'electron'
 import { exportFormats, mediaExtensions } from '../shared/api.js'
 import type {
   DesktopJob, ExportFormat, JobInput, JobOptions, ModelCatalog, OverwritePolicy, SegmentEdit, SegmentReview,
@@ -27,6 +28,7 @@ export class Workbench {
   private readonly files = new Map<string, string>()
   private readonly watching = new Set<string>()
   private readonly recordingWrites = new Set<Promise<void>>()
+  private readonly modelSelectionPath: string
   private modelsDir?: string
   private outputDir?: string
   private submissions = 0
@@ -40,6 +42,21 @@ export class Workbench {
     private readonly getWindow: () => BrowserWindow | null,
   ) {
     this.sidecar = new Sidecar(root, packaged, dataDir)
+    this.modelSelectionPath = join(dataDir, 'model-directory.json')
+  }
+
+  async initialize(modelTemplate?: string) {
+    const saved: unknown = await readFile(this.modelSelectionPath, 'utf8')
+      .then((content) => JSON.parse(content)).catch(() => null)
+    if (typeof saved === 'string' && isAbsolute(saved)) this.modelsDir = saved
+    if (!modelTemplate) return
+    const directory = join(this.dataDir, 'models')
+    await mkdir(directory, { recursive: true })
+    try {
+      await copyFile(modelTemplate, join(directory, 'manifest.json'), constants.COPYFILE_EXCL)
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error
+    }
   }
 
   connect() {
@@ -92,6 +109,7 @@ export class Workbench {
       if (this.closing) throw new Error('工作台正在关闭。')
       const catalog = await (await this.sidecar.connect(chosen)).request<ModelCatalog>('/models')
       if (catalog.errors.length) throw new Error(catalog.errors[0])
+      await writeExportFile(this.modelSelectionPath, JSON.stringify(chosen), true)
       this.modelsDir = chosen
       return catalog
     } catch (error) {
@@ -100,6 +118,14 @@ export class Workbench {
     } finally {
       this.switchingModelDirectory = false
     }
+  }
+
+  async openModelDirectory() {
+    const catalog = await (await this.connect()).request<ModelCatalog>('/models')
+    const directory = dirname(catalog.manifest_path)
+    await mkdir(directory, { recursive: true })
+    const error = await shell.openPath(directory)
+    if (error) throw new Error('无法打开模型目录，请在文件管理器中访问设置页显示的路径。')
   }
 
   async pickOutputDirectory() {

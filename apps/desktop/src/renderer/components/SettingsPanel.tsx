@@ -40,10 +40,13 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
 
   return <div className="settings-grid">
     <section className="solid settings-card">
-      <div className="panel-heading"><div className="icon-tile"><HardDrive size={20} /></div><div><h2>模型与文件</h2><p>本机目录 · 当前会话</p></div></div>
+      <div className="panel-heading"><div className="icon-tile"><HardDrive size={20} /></div><div><h2>模型与文件</h2><p>本机目录</p></div></div>
       <div className="setting-line">
         <div><strong>模型清单</strong><p>{catalog?.manifest_path ?? '尚未连接本地服务'}</p></div>
-        <button disabled={busy} onClick={() => void changeModelDirectory()}><FolderOpen size={16} /> {busy ? '正在切换' : '选择目录'}</button>
+        <div className="button-row">
+          <button disabled={busy || !catalog} onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
+          <button disabled={busy} onClick={() => void changeModelDirectory()}>{busy ? '正在切换' : '选择目录'}</button>
+        </div>
       </div>
       {catalog?.errors.map((error) => <p className="privacy-warning" key={error}>{error}</p>)}
       {catalog?.models.map((model) => <div className="setting-line" key={model.id}>

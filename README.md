@@ -1,10 +1,37 @@
-# JP Voice Workbench
+# Whisper工作台
 
 本地优先的日语音频工作台，支持日语转录、按需日中翻译、术语匹配和字幕复核。阶段验收、开发约定和实际验收记录见 [AGENT.md](AGENT.md)、[CONTRIBUTING.md](CONTRIBUTING.md) 和 [STATUS.md](STATUS.md)。
 
 ## 当前范围
 
 Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper 转录、可选 DeepSeek 文本翻译、任务历史、术语表维护与匹配预览、字幕编辑，以及 SRT、VTT、LRC、TXT 导出。音频始终留在本机，只有启用翻译时才会将待翻译字幕文本发送给 DeepSeek。
+
+## Windows 安装与首次启动
+
+Windows x64 交付两个 EXE。运行 `Whisper工作台-0.1.0-win-x64-setup.exe` 可安装到所选目录，运行 `Whisper工作台-0.1.0-win-x64-portable.exe` 可直接启动。两种版本均包含 Python sidecar，均使用当前 Windows 用户的 `%APPDATA%\jp-voice-workbench` 保存本地数据。
+
+1. 首次启动后点击「打开模型目录」，在其中放置 `whisper-ja-1.5B` 的本地 CTranslate2 模型文件。工作台会创建默认 `manifest.json`，并检查模型文件是否齐全。
+2. 若模型已在其他位置，在设置中选择含 `manifest.json` 的目录。外部清单可使用模型的绝对路径。设置会在下次启动恢复。
+3. 只有需要日中翻译时，才在用户数据目录下的 `.env` 或环境变量中配置 `DEEPSEEK_API_KEY`，并在任务中选择翻译模式。
+
+Windows 交付为本地未签名构建，模型权重由用户提供。CPU 可使用默认清单的 `int8`。使用 NVIDIA GPU 时需具备相容的驱动和 CUDA 运行环境。
+
+## 打包
+
+在目标平台准备 Node.js 24、pnpm 11.21.0 和 Python 3.10 的项目 `.venv`。Windows 在仓库根目录执行。
+
+```powershell
+uv pip install --require-hashes --python .venv/Scripts/python.exe -r backend/requirements.txt -r backend/requirements-build.txt
+pnpm --dir apps/desktop install --frozen-lockfile
+pnpm --dir apps/desktop build
+pnpm --dir apps/desktop dist
+```
+
+PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。Windows 产物位于 `apps/desktop/release/`。初次构建会获取 Electron 与安装器工具。
+
+macOS 在本机运行同一个 `pnpm --dir apps/desktop dist` 命令，Python 路径为 `.venv/bin/python`。仓库提供手动触发的 `Whisper工作台 macOS 构建` 工作流，在 `macos-latest` 生成 DMG 和 ZIP。当前验收平台为 Windows，macOS 工作流待实际运行。
+
+参见[一分钟演示](docs/demo.md)与[架构说明](docs/architecture.md)。
 
 ## 环境与依赖
 
@@ -62,7 +89,7 @@ pnpm --dir apps/desktop dev
 - 转录完成后在「字幕复核」并排查看模型输出和当前字幕。可以手改并保存、逐条接受或拒绝术语建议，也可以撤销最近一次仍可撤销的替换。纯静音或合成正弦波可能生成空 SRT。
 - 导出时先选择字幕格式和覆盖策略，再通过保存对话框确认目录与文件名。默认保护已有同名文件。
 - 在「术语表」导入 `examples/glossary.demo.json`，用 `田中さんと渋谷で会いました` 验证高亮和替换预览。也可以直接维护词条，或导出 CSV/JSON。
-- 在「设置」选择含 `manifest.json` 的目录、推理设备、计算类型和默认导出目录。设置在当前会话生效，任务与已保存字幕会在重启后恢复。
+- 在「设置」选择含 `manifest.json` 的目录、推理设备、计算类型和默认导出目录。模型目录、任务与已保存字幕在重启后恢复。推理覆盖项和默认导出目录在当前会话生效。
 - 临时录音在任务完成、失败、取消或正常退出时清理。异常退出留下的临时录音会在下次启动时清理。勾选「保留录音副本」会在 Electron 用户数据目录的 `recordings/` 保留 WebM，任务详情会显示保存路径。
 
 导航、录音面板、任务栏和导出条使用本地打包的 Glasswork v1.1.0 MIT 样式和 Chromium 折射。背景是项目内的矢量图与渐变，浅色和深色均提供降低透明度时的实底材质。来源见 [Glasswork v1.1.0](https://github.com/kubai087/glasswork/tree/v1.1.0)。

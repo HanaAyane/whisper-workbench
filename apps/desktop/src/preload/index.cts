@@ -22,6 +22,7 @@ const api: WorkbenchApi = {
     return () => { ipcRenderer.removeListener('job-update', listener) }
   },
   pickModelDirectory: () => ipcRenderer.invoke('pick-model-directory'),
+  openModelDirectory: () => ipcRenderer.invoke('open-model-directory'),
   pickOutputDirectory: () => ipcRenderer.invoke('pick-output-directory'),
   listGlossaries: () => ipcRenderer.invoke('list-glossaries'),
   readGlossary: (id) => ipcRenderer.invoke('read-glossary', id),

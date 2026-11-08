@@ -1,0 +1,41 @@
+appId: io.github.hanaayane.whisperworkbench
+productName: Whisper工作台
+electronDist: node_modules/electron/dist
+directories:
+  output: release
+asar: true
+npmRebuild: false
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - '!node_modules/**/*'
+extraResources:
+  - from: ../../backend/dist/sidecar
+    to: sidecar
+  - from: ../../examples/manifest.packaged.json
+    to: manifest.example.json
+win:
+  target:
+    - nsis
+    - portable
+nsis:
+  artifactName: '${productName}-${version}-win-${arch}-setup.${ext}'
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: false
+  deleteAppDataOnUninstall: false
+  installerLanguages:
+    - zh_CN
+    - en_US
+portable:
+  artifactName: '${productName}-${version}-win-${arch}-portable.${ext}'
+mac:
+  artifactName: '${productName}-${version}-mac-${arch}.${ext}'
+  category: public.app-category.productivity
+  identity: null
+  target:
+    - dmg
+    - zip
+  extendInfo:
+    NSMicrophoneUsageDescription: Whisper工作台使用麦克风录制用于本地转录的音频。

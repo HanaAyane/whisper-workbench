@@ -1,0 +1,17 @@
+{
+  "models": [
+    {
+      "id": "whisper-ja-1.5B",
+      "type": "asr",
+      "label": "Whisper Japanese 1.5B",
+      "path": "models/whisper-ja-1.5B",
+      "language": "ja",
+      "task": "transcribe",
+      "compute_type": "int8"
+    }
+  ],
+  "vad": {
+    "model_path": "models/whisper_vad.onnx",
+    "metadata_path": "models/whisper_vad_metadata.json"
+  }
+}

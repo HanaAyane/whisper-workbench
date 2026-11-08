@@ -1,0 +1,3 @@
+# Phase 9 sidecar packaging only.
+-c requirements.txt
+pyinstaller==6.22.3

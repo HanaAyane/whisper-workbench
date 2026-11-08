@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AudioWaveform, BookOpen, CircleAlert, Moon, RotateCw, Settings2, ShieldCheck, Sun, X } from 'lucide-react'
+import { AudioWaveform, BookOpen, CircleAlert, FolderOpen, Moon, RotateCw, Settings2, ShieldCheck, Sun, X } from 'lucide-react'
+import { APP_NAME } from '../shared/api'
 import type { Glossary, ModelCatalog } from '../shared/api'
 import { ExportBar } from './components/ExportBar'
 import { GlossaryPanel } from './components/GlossaryPanel'
@@ -55,7 +56,7 @@ export function App() {
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
 
   const asrModels = catalog?.models.filter((model) => model.type === 'asr') ?? []
-  const title = page === 'glossary' ? '术语表' : page === 'settings' ? '工作台设置' : '日语语音工作台'
+  const title = page === 'glossary' ? '术语表' : page === 'settings' ? '工作台设置' : APP_NAME
   const caption = page === 'glossary' ? '维护常见误识别、专有名词和统一译名。'
     : page === 'settings' ? '配置本地模型、推理设备和字幕保存位置。'
       : '从日语音频到可编辑的字幕。'
@@ -71,7 +72,7 @@ export function App() {
     </div>
     <div className="shell-content">
       <Glass className="topbar">
-        <div className="wordmark"><span className="brand-mark"><AudioWaveform size={22} /></span><div><strong>语音工作台</strong><small>JP VOICE WORKBENCH</small></div></div>
+        <div className="wordmark"><span className="brand-mark"><AudioWaveform size={22} /></span><div><strong>{APP_NAME}</strong><small>WHISPER WORKBENCH</small></div></div>
         <nav aria-label="主导航">{tabs.map(({ id, label, icon: Icon }) => <button key={id} type="button" aria-current={page === id ? 'page' : undefined} onClick={() => setPage(id)}><Icon size={17} />{label}</button>)}</nav>
         <div className="top-actions">
           <span className={`connection ${connection}`} role="status"><i />{connection === 'online' ? '本地服务就绪' : connection === 'loading' ? '正在连接' : '本地服务离线'}</span>
@@ -90,7 +91,9 @@ export function App() {
           <span>{notice.message}</span><button type="button" className="icon-button" aria-label="关闭消息" onClick={() => setNotice(null)}><X size={16} /></button>
         </div>}
         {page === 'workbench' && connection === 'online' && !asrModels.some((model) => model.ok) && <div className="notice" role="status">
-          <CircleAlert size={18} /><span>未找到可用的日语转录模型。</span><button onClick={() => setPage('settings')}>检查模型路径</button>
+          <CircleAlert size={18} /><span>未找到可用的日语转录模型。请放入本地 CT2 模型，或在设置中选择已有清单。</span>
+          <button onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
+          <button onClick={() => setPage('settings')}>检查模型路径</button>
         </div>}
         <div className="workspace" hidden={page !== 'workbench'}>
           <RecorderPanel models={asrModels} glossaries={glossaries} connected={connection === 'online'}

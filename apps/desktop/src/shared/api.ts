@@ -1,3 +1,4 @@
+export const APP_NAME = 'Whisper工作台'
 export const mediaExtensions = ['wav', 'mp3', 'm4a', 'flac', 'mp4', 'mkv', 'webm']
 export const exportFormats = ['srt', 'vtt', 'lrc', 'txt'] as const
 export type ExportFormat = (typeof exportFormats)[number]
@@ -131,6 +132,7 @@ export interface WorkbenchApi {
   exportJob(jobId: string, format: ExportFormat, policy: OverwritePolicy): Promise<string | null>
   onJobUpdate(callback: (job: DesktopJob) => void): () => void
   pickModelDirectory(): Promise<ModelCatalog | null>
+  openModelDirectory(): Promise<void>
   pickOutputDirectory(): Promise<string | null>
   listGlossaries(): Promise<Glossary[]>
   readGlossary(id: string): Promise<Entry[]>

@@ -101,7 +101,7 @@ def create_app(
 app = create_app()
 
 
-if __name__ == "__main__":
+def serve() -> None:
     import uvicorn
 
     def watch_desktop() -> None:
@@ -122,5 +122,18 @@ if __name__ == "__main__":
                 print("SIDECAR_READY " + json.dumps(ready), flush=True)
 
     DesktopServer(
-        uvicorn.Config(app, host="127.0.0.1", port=0 if desktop else 8765, access_log=not desktop)
+        uvicorn.Config(
+            app,
+            host="127.0.0.1",
+            port=0 if desktop else 8765,
+            access_log=not desktop,
+            loop="asyncio",
+            http="h11",
+            ws="wsproto",
+            lifespan="on",
+        )
     ).run()
+
+
+if __name__ == "__main__":
+    serve()
