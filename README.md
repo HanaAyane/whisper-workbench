@@ -4,11 +4,11 @@
 
 ## 当前范围
 
-本轮仅实现 Phase 0 和 Phase 1。模型资产检查只判断文件是否存在，不代表模型可推理。桌面、音频处理、ASR、词表和字幕功能尚未实现。中文法律文本脱敏与 mask 是可选迁移方向。
+当前已完成 Phase 0、Phase 1 和 Phase 2：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块及任务临时目录清理。模型资产检查只判断文件是否存在，不代表 ASR 模型可推理。桌面、ASR、词表和字幕功能尚未实现；waveform peaks 是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
 
 ## 环境与依赖
 
-已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端当前只安装 FastAPI、Pydantic、Uvicorn 和检查工具；faster-whisper/CTranslate2 等在 Phase 3 引入，不提前安装模型推理依赖。
+已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime 和检查工具；faster-whisper/CTranslate2 等在 Phase 3 引入，不提前安装 ASR 推理依赖。
 
 项目使用 `.venv`。有 Python 3.10 和 pip 时，在项目根目录执行（PowerShell）：
 
@@ -75,10 +75,28 @@ curl.exe -H "X-Sidecar-Token: dev" http://127.0.0.1:8765/api/health
 | `JP_WORKBENCH_ROOT` | 根据源码位置确定项目根，不依赖工作目录 |
 | `JP_WORKBENCH_MODELS_DIR` | `<项目根>/models`；改变默认清单所在目录 |
 | `JP_WORKBENCH_MANIFEST` | `<模型目录>/manifest.json`；清单内相对模型路径仍以项目根解析 |
-| `JP_WORKBENCH_TEMP_DIR` | `<项目根>/data/tmp`；本阶段只配置，不进行音频读写 |
+| `JP_WORKBENCH_TEMP_DIR` | `<项目根>/data/tmp`；Phase 2 任务临时目录的根目录 |
 | `JP_WORKBENCH_DEVICE` | `auto`；允许 `auto/cpu/cuda`，尚未加载设备 |
 | `JP_WORKBENCH_COMPUTE_TYPE` | `int8`；允许 `int8/int8_float16/float16/bfloat16`，尚未验证推理 |
 | `SIDECAR_TOKEN` | 未设置时随机生成；显式非空 ASCII 值供开发/未来主进程传入 |
+
+## 音频处理（Phase 2）
+
+`app.audio.decode.decode_audio(path)` 接受 `.wav/.mp3/.m4a/.flac/.mp4/.mkv`，通过 PyAV 返回一维 `float32` 采样，固定为 16000 Hz 单声道。`DecodedAudio.duration_ms` 由实际采样数计算；解码失败、无音轨和空采样会给出中文错误。
+
+`app.audio.vad.detect_speech(samples)` 默认优先读取 `models/whisper_vad.onnx` 与 `models/whisper_vad_metadata.json`。该 ONNX 需要 30 秒 Whisper log-Mel 特征，本地特征配置默认从 `models/whisper-base/preprocessor_config.json` 读取，也可用 `feature_config_path` 显式指定。实现只读取本地文件，不会从 Hugging Face 下载配置。ONNX、metadata、特征配置缺失或运行失败时记录中文警告并降级到 RMS 能量阈值；也可传 `use_onnx=False` 强制使用回退。合成正弦波适合验证回退与边界，不代表真实人声上的 ONNX VAD 准确率。
+
+VAD 与切块统一使用毫秒、左闭右开的 `SpeechSegment(start_ms, end_ms)`。`merge_speech_segments()` 默认合并不超过 500 ms 的静音间隔，并生成每块不超过 30000 ms 的连续时间范围；超长语音会硬切，不丢弃原语音区间。`speech_pad_ms` 默认 200，测量未填充的检测边界时应显式设为 0。
+
+任务临时文件使用 `job_temp_directory(job_id)` 上下文管理器，写入 `data/tmp/<job-id>/`，正常返回或抛出异常都会清理；任务 ID 禁止路径分隔符和路径穿越。不要绕过该上下文把私人音频写入仓库。
+
+生成完全合成的演示资源：
+
+```powershell
+python scripts/make_demo_assets.py --out data/demo
+```
+
+该命令生成 6 秒 `sample.wav` 与 `sample.txt`。音频只有正弦波和静音，文本如实描述信号，**不是日语语音或 ASR 参照转录**；生成资源均被 Git 忽略。
 
 ## 开发检查
 
