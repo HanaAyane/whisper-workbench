@@ -1,14 +1,14 @@
 # JP Voice Workbench
 
-本地优先的日语音频工作台，规划支持日语转录、日中翻译、专名纠错、译名统一与字幕复核。需求和阶段验收以 [AGENT.md](AGENT.md) 为准，开发约定见 [CONTRIBUTING.md](CONTRIBUTING.md)，实际验收见 [STATUS.md](STATUS.md)。
+本地优先的日语音频工作台，支持日语转录、按需日中翻译、术语匹配和字幕复核。阶段验收、开发约定和实际验收记录见 [AGENT.md](AGENT.md)、[CONTRIBUTING.md](CONTRIBUTING.md) 和 [STATUS.md](STATUS.md)。
 
 ## 当前范围
 
-当前已完成 Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）和 Phase 4（4.1–4.7 首版 exact 范围）：具备本地 Sidecar、音视频解码、VAD/能量回退、30 秒切块、本地 faster-whisper ASR、**DeepSeek 文本翻译**，以及**术语表精确匹配、替换与预览 API**。ASR 使用本地模型，音频始终不上传；启用翻译时仅字幕文本发送到 DeepSeek，词表处理完全本地。真实日语样本的 30 秒片段与完整长音频转写验收已通过。桌面 UI 和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
+Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper 转录、可选 DeepSeek 文本翻译、术语表维护与匹配预览、当前会话内的字幕编辑，以及 SRT、VTT、LRC、TXT 导出。音频始终留在本机，只有启用翻译时才会将待翻译字幕文本发送给 DeepSeek。Phase 6 负责跨会话任务记录，Phase 7 负责逐条接受、拒绝和撤销术语建议。
 
 ## 环境与依赖
 
-已验证 Windows、Python 3.10.21、Node v24.16.0、pnpm 11.21.0。尚无前端依赖，Node/pnpm 兼容性留待前端阶段验证。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime、faster-whisper 1.2.1、CTranslate2 4.8.5、pyahocorasick 2.3.1 和检查工具。真实 ASR 加载与推理已在 RTX 4070（CUDA，bfloat16）上验证；翻译使用 DeepSeek API，不需要本地翻译权重。
+使用 Node.js 24、pnpm 11.21.0、Electron 45.2.3 和 Python 3.10。后端安装 FastAPI、Pydantic、Uvicorn、PyAV、NumPy、ONNX Runtime、faster-whisper 1.2.1、CTranslate2 4.8.5、pyahocorasick 2.3.1 和检查工具。真实 ASR 加载与推理已在 RTX 4070（CUDA，bfloat16）上验证。翻译使用 DeepSeek API。
 
 项目使用 `.venv`。有 Python 3.10 和 pip 时，在项目根目录执行（PowerShell）：
 
@@ -47,7 +47,34 @@ python scripts/verify_models.py
 
 已有本地清单时不要覆盖，可先人工编辑。也可传 `--manifest <路径>`。脚本退出码 0 表示文件齐全；1 表示缺失/清单错误，并逐项打印路径。当前默认模型路径缺失属于真实环境结果，不阻止健康服务或无模型测试启动。
 
-## 启动 Sidecar（Phase 1）
+## 启动桌面工作台（Phase 5）
+
+准备项目 `.venv` 与模型清单，在仓库根目录执行。
+
+```powershell
+pnpm --dir apps/desktop install --frozen-lockfile
+pnpm --dir apps/desktop dev
+```
+
+首次运行会取得锁定版本的 Electron。开发脚本优先让 Vite 监听 `127.0.0.1:5173`，端口不可用时切换到系统分配的环回端口。Electron 主进程随后启动本地 Python 服务，并通过私有管道取得其环回端口。令牌只在主进程和 Python 服务中使用。也可执行 `pnpm --dir apps/desktop build` 后运行 `pnpm --dir apps/desktop start`，加载构建后的界面。
+
+- 在「新建转录」录制约 10 秒日语或拖入媒体，再点「开始处理」。任务栏显示进度，运行中取消会在当前处理步骤结束后生效。
+- 转录完成后在「字幕复核」并排查看模型输出和当前字幕。点「编辑」再「保存」，导出会使用已保存的当前字幕。纯静音或合成正弦波可能生成空 SRT。
+- 在「术语表」导入 `examples/glossary.demo.json`，用 `田中さんと渋谷で会いました` 验证高亮和替换预览。也可以直接维护词条，或导出 CSV/JSON。
+- 在「设置」选择含 `manifest.json` 的目录、推理设备、计算类型和默认导出目录。任务与设置保存在本次运行的会话内，词表保存在本地。
+- 录音在任务结束后清理。勾选「保留录音副本」会在 Electron 用户数据目录的 `recordings/` 保留 WebM，任务详情会显示保存路径。
+
+导航、录音面板、任务栏和导出条使用本地打包的 Glasswork v1.1.0 MIT 样式和 Chromium 折射。背景是项目内的矢量图与渐变，浅色和深色均提供降低透明度时的实底材质。来源见 [Glasswork v1.1.0](https://github.com/kubai087/glasswork/tree/v1.1.0)。
+
+Windows 桌面烟雾脚本需要 ffmpeg、已配置的 ASR 模型和生产构建。默认使用 `data/demo/sample.wav` 的合成信号，可以将 `JP_WORKBENCH_SMOKE_AUDIO` 设为本地日语音频，以额外验证非空转录与字幕编辑。脚本使用模拟麦克风，浅色与深色截图保存至被忽略的 `data/desktop-smoke/`。
+
+```powershell
+python scripts/make_demo_assets.py --out data/demo
+pnpm --dir apps/desktop build
+pnpm --dir apps/desktop smoke
+```
+
+## 单独启动 Sidecar（Phase 1）
 
 激活项目 `.venv` 后，在 `backend` 目录执行：
 
@@ -78,11 +105,11 @@ curl.exe -H "X-Sidecar-Token: dev" http://127.0.0.1:8765/api/health
 | `JP_WORKBENCH_TEMP_DIR` | `<项目根>/data/tmp`；Phase 2 任务临时目录的根目录 |
 | `JP_WORKBENCH_DEVICE` | `auto`；`auto` 优先 CUDA，无 GPU 时用 CPU |
 | `JP_WORKBENCH_COMPUTE_TYPE` | `int8`；模型清单中的 `compute_type` 优先，README 记录的 ASR 验证值为 `bfloat16` |
-| `SIDECAR_TOKEN` | 未设置时随机生成；显式非空 ASCII 值供开发/未来主进程传入 |
+| `SIDECAR_TOKEN` | 未设置时随机生成。Electron 启动子进程时直接传入临时令牌 |
 
 ## 音频处理（Phase 2）
 
-`app.audio.decode.decode_audio(path)` 接受 `.wav/.mp3/.m4a/.flac/.mp4/.mkv`，通过 PyAV 返回一维 `float32` 采样，固定为 16000 Hz 单声道。`DecodedAudio.duration_ms` 由实际采样数计算；解码失败、无音轨和空采样会给出中文错误。
+`app.audio.decode.decode_audio(path)` 接受 `.wav/.mp3/.m4a/.flac/.mp4/.mkv/.webm`，通过 PyAV 返回一维 `float32` 采样，固定为 16000 Hz 单声道。`DecodedAudio.duration_ms` 由实际采样数计算。解码失败、无音轨和空采样会给出中文错误。
 
 `app.audio.vad.detect_speech(samples)` 默认优先读取 `models/whisper_vad.onnx` 与 `models/whisper_vad_metadata.json`。该 ONNX 需要 30 秒 Whisper log-Mel 特征，本地特征配置默认从 `models/whisper-base/preprocessor_config.json` 读取，也可用 `feature_config_path` 显式指定。实现只读取本地文件，不会从 Hugging Face 下载配置。ONNX、metadata、特征配置缺失或运行失败时记录中文警告并降级到 RMS 能量阈值；也可传 `use_onnx=False` 强制使用回退。合成正弦波适合验证回退与边界，不代表真实人声上的 ONNX VAD 准确率。
 
@@ -207,7 +234,16 @@ $env:TMPDIR = (Resolve-Path data/tmp).Path
 python -m pytest -q
 ```
 
-CI 在 Windows/Linux 的 Python 3.10 上执行仓库、静态、格式和无模型测试，不下载模型或使用私人音频。模型文件存在检查不替代加载模型、GPU 或业务验收。
+桌面端与 CI 使用相同的静态检查、测试和构建入口。
+
+```powershell
+pnpm --dir apps/desktop lint
+pnpm --dir apps/desktop typecheck
+pnpm --dir apps/desktop test
+pnpm --dir apps/desktop build
+```
+
+CI 在 Windows 和 Linux 运行 Python 3.10 与 Node 24 检查，测试使用合成数据或 mock。
 
 ## 本地数据
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import tempfile
 from pathlib import Path
 
 from app.config import Settings
@@ -41,9 +42,22 @@ class GlossaryStore:
     def save(self, glossary_id: str, entries: list[GlossaryEntry]) -> None:
         path = self._path(glossary_id)
         self.base_dir.mkdir(parents=True, exist_ok=True)
-        temp = path.with_suffix(".json.tmp")
-        temp.write_text(dump_entries(entries, "json"), encoding="utf-8")
-        temp.replace(path)
+        output = tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=self.base_dir, suffix=".tmp", delete=False
+        )
+        temp = Path(output.name)
+        try:
+            with output:
+                output.write(dump_entries(entries, "json"))
+            temp.replace(path)
+        finally:
+            temp.unlink(missing_ok=True)
+
+    def delete(self, glossary_id: str) -> None:
+        try:
+            self._path(glossary_id).unlink()
+        except FileNotFoundError as exc:
+            raise GlossaryNotFoundError(f"词表不存在：{glossary_id}") from exc
 
     def export(self, glossary_id: str, fmt: str) -> str:
         return dump_entries(self.load(glossary_id), fmt)

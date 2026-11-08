@@ -2,6 +2,7 @@
 
 import time
 import wave
+from threading import Event
 
 import numpy as np
 import pytest
@@ -105,6 +106,38 @@ def test_job_failure_is_queryable(settings, tmp_path):
         data = _wait(client, job_id)
     assert data["state"] == "failed"
     assert "显存不足" in data["error"]
+
+
+def test_cancel_running_and_queued_jobs(settings, tmp_path):
+    audio = _write_wav(tmp_path / "sample.wav")
+    started = Event()
+    release = Event()
+    calls = []
+
+    def blocking(request, report):
+        calls.append(request)
+        started.set()
+        assert release.wait(5)
+        return _segments(request, report)
+
+    with TestClient(create_app(settings, job_runner=blocking)) as client:
+        running = client.post("/api/jobs", json=_payload(audio), headers=HEADERS).json()["id"]
+        try:
+            assert started.wait(2)
+            queued = client.post("/api/jobs", json=_payload(audio), headers=HEADERS).json()["id"]
+            assert (
+                client.post(f"/api/jobs/{queued}/cancel", headers=HEADERS).json()["state"]
+                == "cancelled"
+            )
+            assert (
+                client.post(f"/api/jobs/{running}/cancel", headers=HEADERS).json()["state"]
+                == "running"
+            )
+        finally:
+            release.set()
+        assert _wait(client, running)["state"] == "cancelled"
+        assert _wait(client, queued)["state"] == "cancelled"
+    assert len(calls) == 1
 
 
 def test_create_rejects_missing_audio(settings, tmp_path):

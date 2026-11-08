@@ -23,3 +23,11 @@ def get_job(job_id: str, request: Request) -> JobStatus:
         return request.app.state.job_manager.get_job(job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="任务不存在或已过期。") from exc
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=JobStatus)
+def cancel_job(job_id: str, request: Request) -> JobStatus:
+    try:
+        return request.app.state.job_manager.cancel_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期。") from exc

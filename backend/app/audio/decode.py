@@ -11,7 +11,7 @@ import numpy as np
 
 LOGGER = logging.getLogger(__name__)
 TARGET_SAMPLE_RATE = 16000
-SUPPORTED_SUFFIXES = frozenset({".wav", ".mp3", ".m4a", ".flac", ".mp4", ".mkv"})
+SUPPORTED_SUFFIXES = frozenset({".wav", ".mp3", ".m4a", ".flac", ".mp4", ".mkv", ".webm"})
 
 
 class AudioDecodeError(RuntimeError):

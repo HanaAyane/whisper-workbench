@@ -26,6 +26,8 @@ class JobRequest(BaseModel):
     translation: TranslationOptions = Field(default_factory=TranslationOptions)
     language: str = "ja"
     glossary_id: str | None = "default"
+    device: Literal["auto", "cpu", "cuda"] | None = None
+    compute_type: Literal["int8", "int8_float16", "float16", "bfloat16"] | None = None
     export_formats: list[Literal["srt", "vtt", "lrc", "txt"]] = Field(default_factory=list)
     vad: VadOptions = Field(default_factory=VadOptions)
 

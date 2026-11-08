@@ -18,7 +18,7 @@ git switch -c feat/short-topic
 - 前端统一 pnpm；创建项目时固定实际使用的包管理器版本并提交 `pnpm-lock.yaml`，之后使用冻结锁文件的安装方式。
 - 创建后端时提交依赖声明与可复现的锁定清单。新增依赖说明用途，避免提交其他环境导出的无关包。
 - 遵守 `.editorconfig` 和 `.gitattributes`；Python 用 4 空格，TS/JSON/YAML 用 2 空格，文本默认 LF。
-- 后端使用 `backend/requirements.in` 声明直接依赖，`backend/requirements.txt` 锁定传递依赖及哈希；按 README 安装并运行 Ruff 和 pytest。前端尚未初始化，后续对应阶段再固定 pnpm。
+- 后端使用 `backend/requirements.in` 声明直接依赖，`backend/requirements.txt` 锁定传递依赖及哈希。桌面端在 `apps/desktop/package.json` 固定 pnpm 版本，使用同目录的 `pnpm-lock.yaml`。
 
 ## 检查与提交
 

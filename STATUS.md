@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-本轮完成 Phase 4 术语表与替换引擎（4.1–4.7 首版 exact 范围），并保留 Phase 3 的 ASR + DeepSeek 翻译能力。exact 匹配、别名/最长匹配/优先级、correct/translate/keep、CSV/JSON、预览 API 与任务集成已完成；regex/fuzzy/mask 未实现。桌面 UI 与字幕编辑仍是后续主线。
+本轮实现 Phase 5 的 Electron 工作台。桌面端支持录音和文件导入、任务进度和取消、原始与编辑字幕对照、词表 CRUD 与预览、推理设置及四种字幕格式导出。导航、录音面板、任务栏和导出条使用 Glasswork v1.1.0。
 
 ## 阶段进展
 
@@ -15,7 +15,7 @@
 | 2 音频处理 | 完成 | 音频/全量 pytest 通过；Ruff、仓库基础检查通过；6 种格式实际解码与本地 ONNX 只读烟雾通过 | 16 kHz 单声道 float32 解码、ONNX 优先/能量回退、≤30 秒切块、任务临时目录清理；`[V1]` waveform peaks 未做 |
 | 3 ASR/翻译 | 完成（3.1–3.5） | 全量 pytest 111 passed；真实日语样本 30 秒冒烟与真实 API 任务通过；完整 144.9 秒样本真实 DeepSeek 翻译生成 17 段双语 SRT；Ruff/仓库检查通过 | model_manager、faster-whisper 后端、任务状态机、POST/GET jobs、DeepSeek 翻译与 smoke 脚本已实现；翻译仅文本外发，音频本地 |
 | 4 术语引擎 | 完成（4.1–4.7 首版 exact） | pytest 111 passed；`scripts/glossary_demo.py` 实际输出命中与替换结果；API 导入/预览/导出通过 | exact 匹配、别名、最长匹配、priority、correct/translate/keep、字段隔离、CSV/JSON、预览与任务应用；regex/fuzzy/mask 属 V1/STRETCH 未实现 |
-| 5 Electron/React | 未开始 | 不适用 | 尚无前端项目 |
+| 5 Electron/React | 完成（5.1–5.6） | Windows Electron 开发启动、生产界面烟雾、录音与拖放转写、词表导入预览、字幕编辑与 SRT 导出。前端检查通过，pytest 113 passed | 使用模拟麦克风输入本地日语样本。任务与编辑为会话态 |
 | 6 队列/持久化 | 未开始 | 不适用 | 按实际需求推进 |
 | 7 编辑/导出/隐私 | 未开始 | 不适用 | 尚无实现 |
 | 8 测试/评测 | 未开始 | 不适用 | 尚无业务或真实模型评测 |
@@ -24,7 +24,7 @@
 ## 环境与兼容性
 
 - Git 2.52.0.windows.1；原始基线提交 `8e1f9ea`，稳定分支 `main`，Phase 1 功能分支 `feat/sidecar-foundation`（提交 `a7720c3`），Phase 2 功能分支 `feat/audio-processing`。沿用现有身份，不改全局 Git 配置。
-- Node v24.16.0、pnpm 11.21.0；前端未初始化，无前端兼容性或构建通过声明。
+- 桌面端使用 Node v24.16.0、pnpm 11.21.0、Electron 45.2.3、React 18.3.1、Vite 7.3.7 和 TypeScript 5.9.3。前端依赖已写入 pnpm 锁文件。
 - 系统默认 Python 3.12.7（Anaconda）未用于项目依赖。通过 uv 安装 Python 3.10.21 并创建项目 `.venv`，没有修改系统默认版本，无 Python 版本偏离。
 - Phase 1 所需的 FastAPI 0.115.12、Pydantic 2.11.5、Uvicorn 0.34.2、HTTPX 0.28.1、pytest 8.3.5、Ruff 0.11.11 已预先安装。
 - Phase 2 新增 PyAV 15.1.0、NumPy 2.2.6、ONNX Runtime 1.23.2（含传递依赖）；全部 33 个依赖及哈希锁定在 `backend/requirements.txt`，`uv pip check` 通过。系统 `ffmpeg 8.1` 可用于生成测试样本，解码本身走 PyAV。
@@ -100,10 +100,18 @@
 
 首次 pytest 在测试 setup 阶段遇到系统临时目录权限问题，8 个用例未执行。改用项目内的 `data/tmp` 作为 TMPDIR 后，8 个测试通过。复现命令见 README。
 
+## Phase 5 验收记录
+
+- 在 `feat/electron-workbench` 分支实现 Electron + React 工作台。渲染器通过受限 preload IPC 调用本地服务、打开媒体及保存对话框。主进程校验私有 `SIDECAR_READY` 握手，关闭时等待子进程退出。字幕编辑和导出使用主进程中的会话副本，模型原始结果只读。
+- Glasswork 使用 v1.1.0（`2fb84e9`）的 CSS、Chromium SVG 折射和 MIT 许可证，随应用本地打包。应用根据主题选择玻璃材质，降低透明度时切换为实底。按两种主题的桌面截图抽查玻璃表面文字与背景，所测最小对比度为浅色 7.23:1、深色 9.61:1。
+- `pnpm --dir apps/desktop dev` 启动 Vite、Electron 和 Python 服务。本机的 TCP 保留范围覆盖 5173，已验证改用系统分配的环回端口。Electron 下载遇到 GitHub 504，使用同版镜像并核对官方 npm 包附带的 SHA-256 后运行。
+- Windows Electron 生产界面烟雾通过。合成正弦信号验证了录音 WebM 解码、任务成功、临时录音清理、拖放和空 SRT。用此前验收的本地日语样本模拟麦克风约 10 秒得到 3 段，并验证保留录音副本。拖放同一完整样本得到 17 段，手工编辑后导出 SRT，模型原文保持不变。验收使用模拟麦克风和受控保存路径，未做物理麦克风人工验收或重跑真实 DeepSeek 请求。
+- 通过桌面 UI 导入合成词表并显示命中及替换预览。Ruff 静态和格式检查、仓库基础检查、后端 pytest 113 项、前端 lint/严格 typecheck/2 项单测/build 通过。CI 已配置 Windows/Linux 上的前端检查，远端运行待实际触发。
+
 ## 遗留与下一步
 
-- Phase 0、Phase 1、Phase 2、Phase 3（3.1–3.5）、Phase 4（4.1–4.7 首版 exact）已完成；Phase 5 及以后未开始。
+- Phase 0–5 的首版范围已完成。Phase 6 的跨会话任务存储和 WebSocket、Phase 7 的逐条术语接受/拒绝/撤销及保存接口、Phase 9 的安装包仍待开发。Phase 5 提供轮询与处理步骤边界取消。
 - Phase 4 的 regex/fuzzy 属 V1、mask 属 STRETCH，均未实现；导入时会明确拒绝，不影响 exact 范围验收。
 - Phase 3 的 DeepSeek 翻译已真实跑通，真实翻译质量与专名一致性仍需按样本继续评估。
-- Phase 2 未实现 `[V1]` waveform peaks；Phase 3 未实现批量任务、流式转写、取消、WebSocket 与持久化。
+- Phase 2 的 `[V1]` waveform peaks、Phase 3 的批量任务和流式转写、Phase 5 的自动保存草稿仍待开发。
 - 未创建远程仓库，未推送、发布或打标签。

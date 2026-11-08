@@ -1,5 +1,6 @@
 # JavaScript dependencies and build outputs. Commit dependency lockfiles.
 node_modules/
+dist-electron/
 dist/
 build/
 out/

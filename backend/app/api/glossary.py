@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from app.glossary.io import merge_duplicates, parse_entries
 from app.glossary.models import (
+    GlossaryEntry,
     GlossaryNotFoundError,
     GlossaryValidationError,
 )
@@ -52,6 +53,29 @@ def import_glossary(payload: GlossaryImportRequest, request: Request) -> dict[st
     except GlossaryValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {"glossary_id": payload.glossary_id, "entry_count": len(entries), "warnings": warnings}
+
+
+@router.put("/glossary/{glossary_id}")
+def save_glossary(
+    glossary_id: str, payload: list[GlossaryEntry], request: Request
+) -> dict[str, object]:
+    try:
+        entries, warnings = merge_duplicates(payload)
+        _store(request).save(glossary_id, entries)
+    except GlossaryValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"glossary_id": glossary_id, "entry_count": len(entries), "warnings": warnings}
+
+
+@router.delete("/glossary/{glossary_id}", status_code=204)
+def delete_glossary(glossary_id: str, request: Request) -> Response:
+    try:
+        _store(request).delete(glossary_id)
+    except GlossaryNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except GlossaryValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @router.get("/glossary/{glossary_id}/export")

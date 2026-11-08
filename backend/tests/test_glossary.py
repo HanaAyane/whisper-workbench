@@ -269,6 +269,22 @@ def test_preview_api_import_export(tmp_path):
         assert listed.json()["glossaries"][0]["entry_count"] == 1
 
 
+def test_api_creates_updates_and_deletes_glossary(tmp_path):
+    application = create_app(_settings(tmp_path))
+    with TestClient(application) as client:
+        url = "/api/glossary/local"
+        created = client.put(url, headers=HEADERS, json=[])
+        assert created.status_code == 200
+        assert created.json()["entry_count"] == 0
+        entry = {"id": "term-001", "source": "田中", "target": "田中太郎", "policy": "correct"}
+        updated = client.put(url, headers=HEADERS, json=[entry])
+        assert updated.status_code == 200
+        assert updated.json()["entry_count"] == 1
+        assert client.get(f"{url}/export", headers=HEADERS).json()[0]["target"] == "田中太郎"
+        assert client.delete(url, headers=HEADERS).status_code == 204
+        assert client.get(f"{url}/export", headers=HEADERS).status_code == 404
+
+
 def test_preview_api_missing_glossary_returns_404(tmp_path):
     application = create_app(_settings(tmp_path))
     with TestClient(application) as client:

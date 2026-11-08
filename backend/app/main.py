@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import secrets
+import sys
+import threading
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -74,7 +77,7 @@ def create_app(
     application.add_middleware(
         CORSMiddleware,
         allow_origin_regex=LOCAL_ORIGIN,
-        allow_methods=["GET", "POST"],
+        allow_methods=["GET", "POST", "PUT", "DELETE"],
         allow_headers=["X-Sidecar-Token"],
         allow_credentials=False,
     )
@@ -99,4 +102,23 @@ app = create_app()
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8765)
+    def watch_desktop() -> None:
+        # Electron 持有 stdin 管道。父进程异常退出时，停止本地服务。
+        sys.stdin.buffer.read(1)
+        os._exit(0)
+
+    desktop = os.environ.get("JP_WORKBENCH_DESKTOP") == "1"
+    if desktop:
+        threading.Thread(target=watch_desktop, daemon=True).start()
+
+    class DesktopServer(uvicorn.Server):
+        async def startup(self, sockets=None):
+            await super().startup(sockets)
+            if desktop and self.started:
+                port = self.servers[0].sockets[0].getsockname()[1]
+                ready = {"port": port, "token": app.state.token}
+                print("SIDECAR_READY " + json.dumps(ready), flush=True)
+
+    DesktopServer(
+        uvicorn.Config(app, host="127.0.0.1", port=0 if desktop else 8765, access_log=not desktop)
+    ).run()

@@ -1,4 +1,4 @@
-name: Python 检查
+name: 项目检查
 
 on: [push, pull_request]
 
@@ -26,3 +26,24 @@ jobs:
         run: python -m ruff format --check backend scripts
       - name: 无模型单元测试
         run: python -m pytest -q
+  desktop:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: apps/desktop/package.json
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build

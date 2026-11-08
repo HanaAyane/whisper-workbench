@@ -32,6 +32,10 @@ ProgressReporter = Callable[[float, str, str], None]
 JobRunner = Callable[[JobRequest, ProgressReporter], list[Segment]]
 
 
+class JobCancelled(Exception):
+    pass
+
+
 @dataclass
 class JobRecord:
     id: str
@@ -43,6 +47,7 @@ class JobRecord:
     segments: list[Segment] = field(default_factory=list)
     outputs: list[str] = field(default_factory=list)
     error: str | None = None
+    cancel_requested: bool = False
 
 
 class JobManager:
@@ -87,7 +92,7 @@ class JobManager:
             job = JobRecord(id=job_id, request=request)
             self._jobs[job_id] = job
         self._executor.submit(self._execute, job)
-        return self._status(job)
+        return self.get_job(job_id)
 
     def get_job(self, job_id: str) -> JobStatus:
         with self._lock:
@@ -98,6 +103,20 @@ class JobManager:
 
     def close(self) -> None:
         self._executor.shutdown(wait=True, cancel_futures=True)
+
+    def cancel_job(self, job_id: str) -> JobStatus:
+        with self._lock:
+            job = self._jobs[job_id]
+            if job.state == "queued":
+                self._mark_cancelled(job)
+            elif job.state == "running":
+                job.cancel_requested = True
+                job.message = "正在取消，等待当前处理步骤结束"
+            return self._status(job)
+
+    def _mark_cancelled(self, job: JobRecord) -> None:
+        job.state = "cancelled"
+        job.message = "已取消"
 
     def _status(self, job: JobRecord) -> JobStatus:
         return JobStatus(
@@ -113,26 +132,39 @@ class JobManager:
 
     def _execute(self, job: JobRecord) -> None:
         with self._lock:
+            if job.state == "cancelled":
+                return
             job.state = "running"
             job.message = "开始处理"
             job.progress = 0.01
 
         def report(progress: float, stage: str, message: str = "") -> None:
             with self._lock:
+                if job.cancel_requested:
+                    raise JobCancelled
                 job.progress = max(job.progress, min(progress, 1.0))
                 job.stage = stage
                 job.message = message
 
         try:
             segments = self._runner(job.request, report)
-        except Exception as exc:  # 失败必须落到可查询状态，不能用 500 吞掉。
-            logger.exception("任务 %s 失败", job.id)
+        except JobCancelled:
             with self._lock:
+                self._mark_cancelled(job)
+        except Exception as exc:  # 失败必须落到可查询状态，不能用 500 吞掉。
+            logger.warning("任务 %s 失败（%s）", job.id, type(exc).__name__)
+            with self._lock:
+                if job.cancel_requested:
+                    self._mark_cancelled(job)
+                    return
                 job.state = "failed"
                 job.error = str(exc) or type(exc).__name__
                 job.message = "处理失败"
         else:
             with self._lock:
+                if job.cancel_requested:
+                    self._mark_cancelled(job)
+                    return
                 job.segments = segments
                 job.state = "succeeded"
                 job.progress = 1.0
@@ -162,7 +194,14 @@ class JobManager:
             report(1.0, "export", "处理完成（无语音段）")
             return []
 
-        loaded = self.model_manager.load(request.asr_model_id, expected_type="asr")
+        report(0.24, "asr", "正在加载本地模型")
+        loaded = self.model_manager.load(
+            request.asr_model_id,
+            expected_type="asr",
+            device=request.device,
+            compute_type=request.compute_type,
+        )
+        report(0.25, "asr", "开始转写")
 
         def chunk_progress(done: int, total: int) -> None:
             report(0.25 + 0.55 * done / max(total, 1), "asr", f"正在转写 {done}/{total} 块")
