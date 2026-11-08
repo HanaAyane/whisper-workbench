@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-当前已完成 Phase 0、Phase 1、Phase 2 和 Phase 3（3.1–3.5）的代码实现：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块、任务临时目录清理，以及本地 faster-whisper ASR 与任务状态机。真实日语样本的转写验收仍待完成。模型资产检查只判断文件是否存在，不代表 ASR 模型可推理。桌面 UI、词表和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
+当前已完成 Phase 0、Phase 1、Phase 2 和 Phase 3（3.1–3.5）：具备本地 Sidecar 健康/模型检查、音视频解码、VAD/能量回退、30 秒切块、任务临时目录清理，以及本地 faster-whisper ASR 与任务状态机；真实日语样本的 30 秒片段与完整长音频转写验收已通过。模型资产检查只判断文件是否存在，不代表 ASR 模型可推理。桌面 UI、词表和字幕编辑尚未实现；waveform peaks、批量任务与流式转写是后续 V1 项。中文法律文本脱敏与 mask 是可选迁移方向。
 
 ## 环境与依赖
 
@@ -102,7 +102,7 @@ python scripts/make_demo_assets.py --out data/demo
 
 `app.asr.model_manager.ModelManager` 读取本地 `models/manifest.json`，校验必需文件后按 `device`（`auto/cpu/cuda`）与模型 `compute_type` 加载 `faster_whisper.WhisperModel`，并设置 `local_files_only=True`，不会下载权重。模型按 `(id, device, compute_type)` 缓存，`unload()` 释放。设备自动选择优先 CUDA；不支持的计算类型会返回中文错误并列出可用值。
 
-`app.asr.whisper_backend.recognize_chunks()` 对 Phase 2 产生的 ≤30 秒块逐块推理，把块内时间戳换算为全局毫秒并裁剪到块边界；`translate_spans()` 为翻译模型保留逐段音频翻译接口。ASR 模型已在 RTX 4070（cuda/bfloat16）完成加载与合成音频推理；真实日语样本转写验收待完成。翻译模型缺失时翻译模式会明确报错。
+`app.asr.whisper_backend.recognize_chunks()` 对 Phase 2 产生的 ≤30 秒块逐块推理，把块内时间戳换算为全局毫秒并裁剪到块边界；`translate_spans()` 为翻译模型保留逐段音频翻译接口。ASR 模型已在 RTX 4070（cuda/bfloat16）完成加载与真实日语样本验收（30 秒片段及完整 144.9 秒长音频）；翻译模型缺失时翻译模式会明确报错。
 
 任务接口（内存态，重启后不保留；持久化/取消/WebSocket 留待 Phase 6）：
 
