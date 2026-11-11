@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Captions, Check, Clock3, Pencil, Undo2 } from 'lucide-react'
+import { Check, Clock3, Pencil, Undo2 } from 'lucide-react'
 import type { DesktopJob, ReviewHit, Segment, SegmentEdit } from '../../shared/api'
 import { errorText, timeLabel } from '../format'
 import { Highlight, policyLabel } from './Highlight'
@@ -80,15 +80,13 @@ export function TranscriptEditor({ job, onError }: { job?: DesktopJob; onError(m
     : job.state === 'succeeded' ? '没有检测到可转录的语音。'
       : job.error ?? job.message
 
-  return <section className="solid transcript">
+  return <section className="transcript">
     <div className="section-heading">
-      <div className="panel-heading"><div className="icon-tile"><Captions size={21} /></div>
-        <div><h2>字幕复核</h2><p>{job ? `${job.name} · ${job.segments.length} 段` : '查看并编辑转录结果'}</p></div>
-      </div>
+      <div className="pane-heading"><h2>字幕复核</h2><p>{job ? `${job.name} · ${job.segments.length} 段` : '查看并编辑转录结果'}</p></div>
       {job && <span className="label-pill">{job.mode === 'translate' ? '日语 / 中文' : '日语'}</span>}
     </div>
     {job?.recorded_path && <p className="saved-path">录音副本 · {job.recorded_path}</p>}
-    {empty ? <div className="empty-transcript"><Captions size={30} /><p>{note}</p></div>
+    {empty ? <div className="empty-transcript"><p>{note}</p></div>
       : <div className="segments">{job.segments.map((segment) =>
         <TranscriptRow key={`${job.id}-${segment.id}`} jobId={job.id} segment={segment} onError={onError} />,
       )}</div>}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
-import { BookOpen, Download, Plus, Search, Trash2, Upload } from 'lucide-react'
+import { Download, Plus, Search, Trash2, Upload } from 'lucide-react'
 import type { Entry, Field, Glossary, GlossaryFormat, Policy, Preview } from '../../shared/api'
 import { errorText } from '../format'
 import { Highlight, policyLabel } from './Highlight'
@@ -109,12 +109,14 @@ export function GlossaryPanel({ glossaries, onChange, onError, onSaved }: {
     if (path) onSaved(`词表已保存至 ${path}`)
   }
 
-  return <div className="glossary-grid">
-    <section className="solid glossary-library">
-      <div className="panel-heading"><div className="icon-tile"><BookOpen size={21} /></div><div><h2>词表管理</h2><p>精确匹配 · 别名与译名</p></div></div>
+  return <div className="glossary-page">
+    <header className="pane-heading"><h1>术语表</h1><p>维护常见误识别、专有名词和统一译名。</p></header>
+    <div className="glossary-grid">
+    <section className="glossary-library">
+      <div className="pane-heading"><h2>词表管理</h2><p>精确匹配 · 别名与译名</p></div>
       <div className="glossary-create">
         <label>词表 ID<input value={newId} disabled={busy} onChange={(event) => setNewId(event.target.value)} placeholder="例如 demo" maxLength={64} /></label>
-        <button onClick={() => void run(createGlossary)} disabled={busy || !newId.trim()}><Plus size={16} /> 新建</button>
+        <button aria-label="新建词表" onClick={() => void run(createGlossary)} disabled={busy || !newId.trim()}><Plus size={16} /> 新建</button>
         <button onClick={() => fileInput.current?.click()} disabled={busy}><Upload size={16} /> 导入 CSV / JSON</button>
         <input hidden ref={fileInput} type="file" aria-label="导入词表文件" accept=".csv,.json" onChange={(event) => {
           const file = event.target.files?.[0]
@@ -166,8 +168,8 @@ export function GlossaryPanel({ glossaries, onChange, onError, onSaved }: {
         </form>}
       </> : <p className="muted">新建词表，或导入本地 CSV / JSON 文件。</p>}
     </section>
-    <section className="solid glossary-preview">
-      <div className="panel-heading"><div className="icon-tile"><Search size={20} /></div><div><h2>匹配预览</h2><p>检查命中与替换结果</p></div></div>
+    <section className="glossary-preview">
+      <div className="pane-heading"><h2>匹配预览</h2><p>检查命中与替换结果</p></div>
       <label>作用字段<select value={field} disabled={busy} onChange={(event) => { setField(event.target.value as Field); setPreview(null) }}>
         <option value="text">日语原文</option><option value="translation">中文译文</option>
       </select></label>
@@ -181,5 +183,6 @@ export function GlossaryPanel({ glossaries, onChange, onError, onSaved }: {
         <h3>替换预览</h3><p>{preview.replaced_text}</p>
       </div>}
     </section>
+    </div>
   </div>
 }

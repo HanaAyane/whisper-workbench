@@ -1,0 +1,63 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-11T12:10:00Z",
+  "title": "Design System: Whisper工作台",
+  "extensions": {
+    "colorMeta": {
+      "paper": { "role": "neutral", "displayName": "纸底", "canonical": "#f4f6fb", "tonalRamp": ["#171b28", "#2a3142", "#3a4358", "#6d768c", "#a8b0c2", "#d5dbe8", "#f4f6fb", "#fbfcff"] },
+      "accent": { "role": "primary", "displayName": "主操作紫", "canonical": "#4d42b8", "tonalRamp": ["#1b1733", "#2c2670", "#3c328f", "#4d42b8", "#7a72d4", "#b1a6ff", "#e4e0fb", "#f6f4ff"] },
+      "status": { "role": "success", "displayName": "就绪", "canonical": "#0e5340", "tonalRamp": ["#06281f", "#0e5340", "#147a5c", "#1aa37a", "#4dca9e", "#9ee4cb", "#d7f6ea", "#f3fbf8"] },
+      "error": { "role": "danger", "displayName": "错误", "canonical": "#7c2038", "tonalRamp": ["#3d1020", "#7c2038", "#a83252", "#d45a78", "#ffb7c6", "#ffd5de", "#fff0f3", "#fff8f9"] }
+    },
+    "typographyMeta": {
+      "body": { "displayName": "正文", "purpose": "标签、表格和按钮。" },
+      "title": { "displayName": "页名", "purpose": "术语表和设置的页标题。" }
+    },
+    "shadows": [
+      { "name": "sheet", "value": "0 12px 32px rgb(16 18 32 / 18%)", "purpose": "实底页面和背后的照片分开。" }
+    ],
+    "motion": [
+      { "name": "none", "value": "none", "purpose": "状态变化不加编排过的入场动画。降低动态时关闭过渡。" }
+    ],
+    "breakpoints": [
+      { "name": "stack-forms", "value": "980px" },
+      { "name": "narrow-rail", "value": "860px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "开始处理、预览匹配这类主操作。",
+      "html": "<button class=\"ds-btn-primary\">开始处理</button>",
+      "css": ".ds-btn-primary { background: #4d42b8; color: #fff; border: 1px solid #4d42b8; border-radius: 8px; min-height: 32px; padding: 5px 12px; font: 620 13px Segoe UI, Microsoft YaHei UI, sans-serif; } .ds-btn-primary:hover { background: #3d3396; } .ds-btn-primary:focus-visible { outline: 2px solid #4d42b8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Nav Current",
+      "kind": "nav",
+      "refersTo": "button-nav-current",
+      "description": "左栏当前页。",
+      "html": "<button class=\"ds-nav-current\" aria-current=\"page\">新建</button>",
+      "css": ".ds-nav-current { display: flex; width: 100%; justify-content: flex-start; background: #e4e0fb; color: #3c328f; border: 1px solid transparent; border-radius: 8px; min-height: 32px; padding: 5px 8px; font: 620 13px Segoe UI, Microsoft YaHei UI, sans-serif; } .ds-nav-current:focus-visible { outline: 2px solid #4d42b8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Text Field",
+      "kind": "input",
+      "refersTo": "button-primary",
+      "description": "词表 ID 和选择器共用的控件底。",
+      "html": "<label class=\"ds-field\">词表 ID<input class=\"ds-input\" value=\"demo\" /></label>",
+      "css": ".ds-field { display: grid; gap: 4px; color: #171b28; font: 640 12px Segoe UI, Microsoft YaHei UI, sans-serif; } .ds-input { border: 1px solid #d5dbe8; background: #f3f5fb; color: #171b28; border-radius: 8px; padding: 6px 8px; font: 400 13px Segoe UI, Microsoft YaHei UI, sans-serif; } .ds-input:focus-visible { outline: 2px solid #4d42b8; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "密的本地工作台",
+    "overview": "导航在左栏。正文是实底。玻璃只盖在有照片的栏和浮层上。",
+    "keyCharacteristics": ["左栏四个目的地", "正文不铺玻璃", "中文产品文案"],
+    "rules": [
+      { "name": "玻璃的位置", "body": "只给左栏、顶栏、弹窗和浮层。文稿区保持实底。", "section": "elevation" }
+    ],
+    "dos": ["保持 4.5:1 的文字对比。", "降低透明度时改实色。"],
+    "donts": ["不要加大标题。", "不要把波浪图当背景。", "不要编造采样率。"]
+  }
+}

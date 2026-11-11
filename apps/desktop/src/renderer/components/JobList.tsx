@@ -1,7 +1,6 @@
 import { useState } from 'react'
-import { AudioLines, Check, CircleAlert, Hourglass, ListChecks, X } from 'lucide-react'
-import { activeJob, errorText } from '../format'
-import { Glass } from '../Glass'
+import { AudioLines, Check, CircleAlert, Hourglass, X } from 'lucide-react'
+import { activeJob, errorText, manuscriptSpan, timeLabel } from '../format'
 import { useWorkbench } from '../store'
 
 const states = { queued: '排队中', running: '处理中', succeeded: '已完成', failed: '失败', cancelled: '已取消' }
@@ -25,22 +24,21 @@ export function JobList({ onError }: { onError(message: string): void }) {
     }
   }
 
-  return <Glass className="jobs-panel">
-    <div className="panel-heading">
-      <div className="icon-tile"><ListChecks size={20} /></div>
-      <div><h2>任务列表</h2><p>本地历史 · {rows.length} 个任务</p></div>
-    </div>
-    {rows.length === 0 ? <div className="empty-jobs"><Hourglass size={23} /><strong>暂时没有任务</strong><p>开始处理后，进度会显示在这里。</p></div>
+  return <section className="jobs-panel">
+    <div className="pane-heading"><h2>任务列表</h2><p>本地历史 · {rows.length} 个任务</p></div>
+    {rows.length === 0 ? <div className="empty-jobs"><Hourglass size={18} /><strong>暂时没有任务</strong><p>开始处理后，进度会显示在这里。</p></div>
       : <ul className="job-items">{rows.map((job) => {
         const Icon = icons[job.state]
+        const span = manuscriptSpan(job)
+        const detail = [states[job.state], span === null ? null : timeLabel(span), job.mode === 'translate' ? '含翻译' : null].filter(Boolean).join(' · ')
         return <li className={selected === job.id ? 'job-row selected' : 'job-row'} key={job.id}>
           <button type="button" className="job-select" onClick={() => select(job.id)} aria-pressed={selected === job.id}>
-            <Icon size={18} className={`state-icon ${job.state}`} />
-            <span><strong>{job.name}</strong><small>{states[job.state]} · {job.message}</small></span>
+            <Icon size={15} className={`state-icon ${job.state}`} />
+            <span><strong>{job.name}</strong><small>{detail}</small><small className="job-message">{job.message}</small></span>
           </button>
-          {activeJob(job) && <button className="icon-button" title="取消任务" aria-label="取消任务" disabled={job.cancel_requested || cancelling.has(job.id)} onClick={() => void cancel(job.id)}><X size={17} /></button>}
+          {activeJob(job) && <button className="icon-button" title="取消任务" aria-label="取消任务" disabled={job.cancel_requested || cancelling.has(job.id)} onClick={() => void cancel(job.id)}><X size={15} /></button>}
           {activeJob(job) && <progress max={1} value={job.progress} aria-label="任务进度" />}
         </li>
       })}</ul>}
-  </Glass>
+  </section>
 }

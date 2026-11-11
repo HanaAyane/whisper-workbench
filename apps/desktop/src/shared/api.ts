@@ -122,7 +122,16 @@ export interface DesktopJob {
 
 export interface AudioFile { id: string; name: string }
 /** 批量导入时每个文件的校验结果：id 临时有效，ok=false 时 error 说明原因。 */
-export interface MediaCheck { id: string; name: string; ok: boolean; error?: string }
+export interface MediaCheck {
+  id: string
+  name: string
+  ok: boolean
+  error?: string
+  bytes?: number
+  sampleRate?: number
+  channels?: number
+  bitDepth?: number
+}
 export type JobInput =
   | { kind: 'file'; id: string }
   | { kind: 'recording'; data: ArrayBuffer; keep: boolean }

@@ -48,7 +48,7 @@ try {
     }
   }, { files, dir: subtitles })
 
-  await page.getByRole('button', { name: '工作台', exact: true }).click()
+  await page.getByRole('button', { name: '新建', exact: true }).click()
 
   async function importFiles() {
     await page.getByRole('button', { name: /拖入多个文件/ }).click()

@@ -1,9 +1,36 @@
-import type { DesktopJob, TermHit } from '../shared/api'
+import type { DesktopJob, MediaCheck, TermHit } from '../shared/api'
 
 export function errorText(error: unknown) {
   return error instanceof Error
     ? error.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
     : '操作失败，请重试。'
+}
+
+export function byteLabel(bytes: number) {
+  if (!Number.isFinite(bytes) || bytes < 0) return '—'
+  if (bytes < 1024) return `${Math.round(bytes)} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`
+  const megabytes = bytes / (1024 * 1024)
+  return `${megabytes.toFixed(megabytes < 10 ? 1 : 0)} MB`
+}
+
+export function sampleLabel(file: Pick<MediaCheck, 'name' | 'sampleRate' | 'channels' | 'bitDepth'>) {
+  if (file.sampleRate) {
+    const rate = file.sampleRate % 1000 === 0
+      ? `${file.sampleRate / 1000} kHz`
+      : file.sampleRate >= 1000 ? `${(file.sampleRate / 1000).toFixed(1)} kHz` : `${file.sampleRate} Hz`
+    const channels = file.channels === 1 ? '单声道' : file.channels === 2 ? '立体声' : file.channels ? `${file.channels} 声道` : ''
+    const depth = file.bitDepth ? `${file.bitDepth} bit` : ''
+    return [rate, channels, depth].filter(Boolean).join(' · ')
+  }
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const containers: Record<string, string> = { mp3: 'MP3', m4a: 'M4A', mp4: 'MP4', mkv: 'MKV', webm: 'WebM', wav: 'WAV', flac: 'FLAC' }
+  return (extension && containers[extension]) || '未读取'
+}
+
+export function manuscriptSpan(job: DesktopJob) {
+  if (job.segments.length === 0) return null
+  return Math.max(...job.segments.map((segment) => segment.end))
 }
 
 export function timeLabel(ms: number, milliseconds = false) {
