@@ -144,6 +144,14 @@ export interface JobOptions {
   compute_type: ComputeType | null
 }
 
+/** 设置页展示的翻译提示词：自定义内容为空时使用内置预设。 */
+export interface TranslationPrompt {
+  saved: string
+  default_prompt: string
+  mandatory_rules: string
+  max_chars: number
+}
+
 export interface WorkbenchApi {
   health(): Promise<Health>
   models(): Promise<ModelCatalog>
@@ -171,4 +179,6 @@ export interface WorkbenchApi {
   exportGlossary(id: string, format: GlossaryFormat): Promise<string | null>
   previewGlossary(id: string, field: Field, text: string): Promise<Preview>
   saveTextFile(name: string, content: string): Promise<string | null>
+  translationPrompt(): Promise<TranslationPrompt>
+  saveTranslationPrompt(prompt: string): Promise<TranslationPrompt>
 }

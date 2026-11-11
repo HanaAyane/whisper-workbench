@@ -7,10 +7,12 @@ import { dialog, shell, type BrowserWindow } from 'electron'
 import { exportFormats, mediaExtensions } from '../shared/api.js'
 import type {
   DesktopJob, ExportFormat, JobInput, JobOptions, MediaCheck, ModelCatalog, OverwritePolicy, SegmentEdit, SegmentReview,
+  TranslationPrompt,
 } from '../shared/api.js'
 import { Sidecar, SidecarResponseError, type SidecarConnection } from './sidecar.js'
 import { writeExportFile, writeSubtitleWithUniqueName } from './export-file.js'
 import { readMediaInfo } from './media-info.js'
+import { readTranslationPrompt, writeTranslationPrompt } from './translation-prompt.js'
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024
 const TEMP_RECORDING = /^recording-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.webm$/
@@ -44,9 +46,12 @@ export class Workbench {
   private readonly watching = new Set<string>()
   private readonly recordingWrites = new Set<Promise<void>>()
   private readonly modelSelectionPath: string
+  private readonly translationPromptPath: string
   private readonly modelRoot?: string
   private modelsDir?: string
   private outputDir?: string
+  private systemPrompt = ''
+  private promptDefaults?: { default_prompt: string; mandatory_rules: string; max_chars: number }
   private submissions = 0
   private switchingModelDirectory = false
   private closing = false
@@ -59,11 +64,13 @@ export class Workbench {
   ) {
     this.sidecar = new Sidecar(root, packaged, dataDir)
     this.modelSelectionPath = join(dataDir, 'model-directory.json')
+    this.translationPromptPath = join(dataDir, 'translation-prompt.json')
     // Windows 安装版把模型放在 <安装目录>/model，应用按安装位置定位并自动扫描。
     this.modelRoot = packaged && process.platform === 'win32' ? join(dirname(process.execPath), 'model') : undefined
   }
 
   async initialize(modelTemplate?: string) {
+    this.systemPrompt = await readTranslationPrompt(this.translationPromptPath)
     const saved: unknown = await readFile(this.modelSelectionPath, 'utf8')
       .then((content) => JSON.parse(content)).catch(() => null)
     if (typeof saved === 'string' && isAbsolute(saved)) this.modelsDir = saved
@@ -196,6 +203,30 @@ export class Workbench {
     return chosen
   }
 
+  /** 设置页读取：已保存的自定义提示词 + 后端内置预设与固定规则。 */
+  async translationPrompt(): Promise<TranslationPrompt> {
+    const defaults = await (await this.connect()).request<{
+      system_prompt: string
+      mandatory_rules: string
+      max_chars: number
+    }>('/translation/prompt')
+    this.promptDefaults = {
+      default_prompt: defaults.system_prompt,
+      mandatory_rules: defaults.mandatory_rules,
+      max_chars: defaults.max_chars,
+    }
+    return { saved: this.systemPrompt, ...this.promptDefaults }
+  }
+
+  /** 设置页保存：空内容恢复内置预设，内容仅用于 DeepSeek 翻译模式。 */
+  async saveTranslationPrompt(prompt: string): Promise<TranslationPrompt> {
+    this.systemPrompt = await writeTranslationPrompt(this.translationPromptPath, prompt)
+    // 默认值已加载过就不再依赖本地服务，避免服务刚断开时把“已写入”误报成保存失败。
+    return this.promptDefaults
+      ? { saved: this.systemPrompt, ...this.promptDefaults }
+      : this.translationPrompt()
+  }
+
   async createJob(input: JobInput, options: JobOptions) {
     if (this.switchingModelDirectory) throw new Error('正在切换模型目录，请稍后重试。')
     if (!options || !['transcribe', 'translate'].includes(options.mode)) throw new Error('任务模式无效。')
@@ -220,6 +251,9 @@ export class Workbench {
           glossary_id: options.glossary_id,
           device: options.device,
           compute_type: options.compute_type,
+          ...(options.mode === 'translate' && this.systemPrompt
+            ? { translation: { system_prompt: this.systemPrompt } }
+            : {}),
         },
       })
       console.info('已提交本地媒体任务。')

@@ -7,6 +7,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import electron from 'electron'
 import { _electron } from 'playwright'
+import { parseTranslationRequest } from './smoke-payload.mjs'
 
 const dir = fileURLToPath(new URL('../', import.meta.url))
 const root = resolve(dir, '..', '..')
@@ -26,7 +27,7 @@ const mock = createServer(async (request, response) => {
     if (request.url !== '/chat/completions' || request.headers.authorization !== 'Bearer smoke-local') {
       throw new Error()
     }
-    const segments = JSON.parse(JSON.parse(body).messages[1].content).segments
+    const { segments } = parseTranslationRequest(body)
     if (!segments.every((segment) =>
       Object.keys(segment).length === 2 && Number.isInteger(segment.id) && typeof segment.text === 'string'
     )) throw new Error()

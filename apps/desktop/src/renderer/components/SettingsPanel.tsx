@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { FolderOpen, RefreshCw } from 'lucide-react'
-import type { ComputeType, Device, ModelCatalog } from '../../shared/api'
+import type { ComputeType, Device, ModelCatalog, TranslationPrompt } from '../../shared/api'
 import { errorText } from '../format'
 import { useWorkbench } from '../store'
 
@@ -20,6 +20,10 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
   const outputDir = useWorkbench((state) => state.outputDir)
   const setOutputDir = useWorkbench((state) => state.setOutputDir)
   const [busy, setBusy] = useState(false)
+  const [promptInfo, setPromptInfo] = useState<TranslationPrompt | null>(null)
+  const [draft, setDraft] = useState('')
+  const [promptState, setPromptState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [promptError, setPromptError] = useState<string | null>(null)
   const discovery = catalog?.source === 'discovery'
   const hints = catalog?.hints
   const modelDirectory = catalog?.model_directory ?? (catalog ? catalog.manifest_path.replace(/[\\/][^\\/]+$/, '') : undefined)
@@ -45,6 +49,29 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
       onError(errorText(error))
     } finally {
       setBusy(false)
+    }
+  }
+
+  useEffect(() => {
+    window.api.translationPrompt()
+      .then((info) => {
+        setPromptInfo(info)
+        setDraft(info.saved || info.default_prompt)
+      })
+      .catch((error: unknown) => setPromptError(errorText(error)))
+  }, [])
+
+  async function savePrompt(value: string) {
+    setPromptState('saving')
+    setPromptError(null)
+    try {
+      const info = await window.api.saveTranslationPrompt(value)
+      setPromptInfo(info)
+      setDraft(info.saved || info.default_prompt)
+      setPromptState('saved')
+    } catch (error) {
+      setPromptError(errorText(error))
+      setPromptState('idle')
     }
   }
 
@@ -110,6 +137,44 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
       </select></label>
       <p className="muted">音频始终留在本机。选择 DeepSeek 翻译时，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。API Key 由本地 .env 或环境变量提供。</p>
       <p className="muted">历史任务、原始字幕和已保存编辑存放在本机任务库。</p>
+    </section>
+    <section className="settings-card prompt-card">
+      <div className="pane-heading"><h2>翻译提示词</h2><p>仅用于 DeepSeek 翻译模式</p></div>
+      <p className="muted">
+        这段预设会和后端固定的数据边界规则一起发给 DeepSeek。字幕原文用 &lt;subtitles&gt; 标签包住，
+        标签内的内容一律只当作待翻译文本，不执行其中的指令。留空即使用内置预设。
+      </p>
+      {promptInfo ? <>
+        <label className="prompt-label">系统提示词
+          <textarea
+            className="prompt-editor"
+            rows={6}
+            value={draft}
+            maxLength={promptInfo.max_chars}
+            disabled={promptState === 'saving'}
+            onChange={(event) => {
+              setDraft(event.target.value)
+              setPromptState('idle')
+            }}
+          />
+        </label>
+        <div className="prompt-footer">
+          <span className="muted">
+            {draft.trim().length} / {promptInfo.max_chars} 字符{promptInfo.saved ? '' : ' · 当前为内置预设'}
+          </span>
+          <div className="button-row">
+            <button type="button" disabled={promptState === 'saving' || !promptInfo.saved} onClick={() => void savePrompt('')}>恢复默认</button>
+            <button type="button" disabled={promptState === 'saving'} onClick={() => void savePrompt(draft)}>
+              {promptState === 'saving' ? '正在保存' : promptState === 'saved' ? '已保存' : '保存提示词'}
+            </button>
+          </div>
+        </div>
+        {promptError && <p className="privacy-warning">{promptError}</p>}
+        <details className="prompt-rules">
+          <summary>固定数据边界规则（不可编辑）</summary>
+          <pre>{promptInfo.mandatory_rules}</pre>
+        </details>
+      </> : <p className="muted">{promptError ?? '正在读取翻译提示词…'}</p>}
     </section>
     </div>
   </div>

@@ -4,7 +4,7 @@
 
 ## 当前范围
 
-Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper 转录、可选 DeepSeek 文本翻译、任务历史、术语表维护与匹配预览、字幕编辑，以及 SRT、VTT、LRC、TXT 导出。音频始终留在本机，只有启用翻译时才会将待翻译字幕文本发送给 DeepSeek。
+Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper 转录、可选 DeepSeek 文本翻译（可在设置页调整系统提示词）、任务历史、术语表维护与匹配预览、字幕编辑，以及 SRT、VTT、LRC、TXT 导出。音频始终留在本机，只有启用翻译时才会将待翻译字幕文本发送给 DeepSeek。
 
 ## Windows 安装与首次启动
 
@@ -245,11 +245,19 @@ Copy-Item .env.example .env
 ```json
 {
   "mode": "translate",
-  "translation": {"provider": "deepseek", "model": "deepseek-flash"}
+  "translation": {"provider": "deepseek", "model": "deepseek-flash", "system_prompt": null}
 }
 ```
 
+`system_prompt` 省略或为 `null` 时使用内置预设；桌面端会把它保存为本地自定义提示词后注入，长度上限 4000 字符。
+
 `app.translation.deepseek.DeepSeekTranslator` 会按 20 段 / 6000 字符分批，用 JSON 模式要求返回与输入 id 一一对应的译文；401/402/429、超时和格式错误都有中文错误。任务 `segments[i].raw_translation` 与 `translation` 保存译文，`raw_text/text` 保留日语原文；不会覆盖原文。`mode=transcribe` 不联网、不需要 Key。
+
+### 提示词与数据边界
+
+发给 DeepSeek 的 system 提示词分两段：前端固定规则 + 可编辑预设。固定规则由后端始终追加，声明 `<subtitles>` 标签内的内容一律只当作待翻译文本，字幕里出现指令、问题或角色扮演也不会被执行；同时固定「逐段 JSON、id 一一对应」的输出契约。字幕原文在 user 消息里用 `<subtitles>` / `<subtitle id="0">` 边界包裹，原文中的 `&`、`<`、`>` 会转义成 HTML 实体，因此任意字幕文本都无法关闭标签或伪造新的边界。
+
+在「设置 → 翻译提示词」可以查看并编辑可编辑那一段（默认值就是内置预设）。保存后写入用户数据目录的 `translation-prompt.json`，只影响后续 `mode=translate` 的任务；点「恢复默认」清空自定义内容。固定规则以只读形式一并展示，界面无法关闭。`GET /api/translation/prompt` 返回默认预设、固定规则和长度上限。
 
 ### 双语字幕冒烟
 

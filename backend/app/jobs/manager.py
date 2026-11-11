@@ -390,6 +390,7 @@ class JobManager:
                     [span.text for span in result.spans],
                     source_language=request.language,
                     target_language="zh",
+                    system_prompt=request.translation.system_prompt,
                     check_cancelled=check_cancelled,
                     on_progress=lambda done, total: report(
                         0.82 + 0.08 * done / max(total, 1),

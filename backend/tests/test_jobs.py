@@ -14,7 +14,7 @@ from app.config import Settings
 from app.glossary.models import GlossaryEntry
 from app.glossary.store import GlossaryStore
 from app.jobs.manager import JobManager
-from app.jobs.schemas import JobRequest, JobStatus, Segment
+from app.jobs.schemas import JobRequest, JobStatus, Segment, TranslationOptions
 from app.main import create_app
 from app.storage.jobs import JobStore
 from fastapi.testclient import TestClient
@@ -315,9 +315,11 @@ def test_cors_preflight_allows_post(settings):
 class _FakeTranslator:
     def __init__(self):
         self.calls = []
+        self.options = []
 
-    def translate_segments(self, texts, **_kwargs):
+    def translate_segments(self, texts, **kwargs):
         self.calls.append(list(texts))
+        self.options.append(kwargs)
         return [f"译文{index}" for index in range(len(texts))]
 
 
@@ -349,11 +351,18 @@ def test_translation_pipeline_uses_deepseek_translator(settings, tmp_path, monke
         ),
     )
 
-    request = JobRequest(input_path=str(audio), mode="translate", asr_model_id="synthetic-test")
+    request = JobRequest(
+        input_path=str(audio),
+        mode="translate",
+        asr_model_id="synthetic-test",
+        translation=TranslationOptions(system_prompt="请使用关西腔，保持礼貌。"),
+    )
     segments = manager._run_pipeline(request, lambda *_args: None)
     manager.close()
 
     assert translator.calls == [["こんにちは"]]
+    assert translator.options[0]["system_prompt"] == "请使用关西腔，保持礼貌。"
+    assert translator.options[0]["target_language"] == "zh"
     assert len(segments) == 1
     assert segments[0].raw_text == "こんにちは"
     assert segments[0].raw_translation == "译文0"

@@ -46,6 +46,8 @@ const api: WorkbenchApi = {
   exportGlossary: (id, format) => ipcRenderer.invoke('export-glossary', id, format),
   previewGlossary: (id, field, text) => ipcRenderer.invoke('preview-glossary', id, field, text),
   saveTextFile: (name, content) => ipcRenderer.invoke('save-text-file', name, content),
+  translationPrompt: () => ipcRenderer.invoke('translation-prompt'),
+  saveTranslationPrompt: (prompt) => ipcRenderer.invoke('save-translation-prompt', prompt),
 }
 
 contextBridge.exposeInMainWorld('api', api)

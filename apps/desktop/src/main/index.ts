@@ -82,6 +82,8 @@ function installIpc() {
   handle('preview-glossary', (id: string, field: Field, text: string) =>
     request('/glossary/preview', { method: 'POST', body: { glossary_id: id, field, text } }))
   handle('save-text-file', workbench.saveTextFile.bind(workbench))
+  handle('translation-prompt', () => workbench.translationPrompt())
+  handle('save-translation-prompt', (prompt: string) => workbench.saveTranslationPrompt(prompt))
 }
 
 function createWindow() {

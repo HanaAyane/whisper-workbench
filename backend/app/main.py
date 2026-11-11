@@ -21,6 +21,7 @@ from app.api.health import router as health_router
 from app.api.jobs import router as jobs_router
 from app.api.jobs import ws_router
 from app.api.models import router as models_router
+from app.api.translation import router as translation_router
 from app.config import LOCAL_ORIGIN, Settings
 from app.jobs.manager import JobManager, JobRunner
 from app.translation.deepseek import DeepSeekTranslator
@@ -95,6 +96,7 @@ def create_app(
     application.include_router(jobs_router, prefix="/api")
     application.include_router(ws_router)
     application.include_router(glossary_router, prefix="/api")
+    application.include_router(translation_router, prefix="/api")
     return application
 
 

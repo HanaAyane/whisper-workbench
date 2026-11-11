@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 import httpx
 
 from app.config import Settings
+from app.translation.prompt import compose_system_prompt, render_user_content
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-flash"
@@ -119,6 +120,7 @@ class DeepSeekTranslator:
         *,
         source_language: str = "ja",
         target_language: str = "zh",
+        system_prompt: str | None = None,
         on_progress: ProgressCallback | None = None,
         check_cancelled: Callable[[], None] | None = None,
     ) -> list[str]:
@@ -132,6 +134,7 @@ class DeepSeekTranslator:
                     batch,
                     source_language=source_language,
                     target_language=target_language,
+                    system_prompt=system_prompt,
                     check_cancelled=check_cancelled,
                 )
             )
@@ -148,27 +151,19 @@ class DeepSeekTranslator:
         *,
         source_language: str,
         target_language: str,
+        system_prompt: str | None,
         check_cancelled: Callable[[], None] | None,
     ) -> dict[int, str]:
-        schema = '{"translations":[{"id":整数,"text":"' + target_language + '译文"}]}'
         payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": [
                 {
                     "role": "system",
-                    "content": (
-                        "你是专业的日语到简体中文字幕翻译。只翻译用户提供的字幕文本，"
-                        "不增删信息、不解释、不合并句子，保持口语自然。"
-                        "输出必须是 JSON 对象：" + schema + "，"
-                        "id 与输入一一对应，顺序保持一致。专名保留原文或使用常见译名。"
-                    ),
+                    "content": compose_system_prompt(system_prompt, target_language),
                 },
                 {
                     "role": "user",
-                    "content": json.dumps(
-                        {"segments": [{"id": index, "text": text} for index, text in batch]},
-                        ensure_ascii=False,
-                    ),
+                    "content": render_user_content(batch),
                 },
             ],
             "temperature": 0.2,

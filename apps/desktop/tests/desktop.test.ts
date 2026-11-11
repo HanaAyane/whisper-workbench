@@ -1,11 +1,17 @@
 import { strict as assert } from 'node:assert'
-import { mkdtemp, readFile, readdir, rm, rmdir } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rm, rmdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { writeExportFile, subtitleBaseName, writeSubtitleWithUniqueName } from '../src/main/export-file.ts'
 import { readMediaInfo } from '../src/main/media-info.ts'
+import {
+  MAX_TRANSLATION_PROMPT_CHARS,
+  readTranslationPrompt,
+  writeTranslationPrompt,
+} from '../src/main/translation-prompt.ts'
 import { byteLabel, highlightedParts, sampleLabel } from '../src/renderer/format.ts'
+import { parseTranslationRequest } from '../scripts/smoke-payload.mjs'
 import type { TermHit } from '../src/shared/api.ts'
 
 test('字幕导出保护同名文件，并能按明确策略替换 UTF-8 文件', async () => {
@@ -80,4 +86,49 @@ test('WAV 和 FLAC 文件头给出采样率，其他容器不编造采样率', (
   assert.equal(sampleLabel({ name: 'clip.mp3' }), 'MP3')
   assert.equal(sampleLabel({ name: 'take.wav', sampleRate: 48000, channels: 2, bitDepth: 24 }), '48 kHz · 立体声 · 24 bit')
   assert.equal(byteLabel(1536), '1.5 KB')
+})
+
+test('翻译提示词保存后可读回，空内容删除文件并回退内置预设', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-prompt-'))
+  const path = join(directory, 'translation-prompt.json')
+  try {
+    assert.equal(await readTranslationPrompt(path), '')
+    assert.equal(await writeTranslationPrompt(path, '  请使用关西腔，保持礼貌。 '), '请使用关西腔，保持礼貌。')
+    assert.equal(await readTranslationPrompt(path), '请使用关西腔，保持礼貌。')
+    assert.equal(await writeTranslationPrompt(path, '   '), '')
+    await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('翻译提示词拒绝超长文本，损坏文件按未自定义处理', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-prompt-'))
+  const path = join(directory, 'translation-prompt.json')
+  try {
+    await assert.rejects(
+      writeTranslationPrompt(path, 'x'.repeat(MAX_TRANSLATION_PROMPT_CHARS + 1)),
+      { message: `翻译提示词不能超过 ${MAX_TRANSLATION_PROMPT_CHARS} 个字符。` },
+    )
+    await writeFile(path, '{not json', 'utf8')
+    assert.equal(await readTranslationPrompt(path), '')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('环回翻译 mock 能从边界格式解析字幕，并拒绝裸 JSON 旧格式', () => {
+  const system = ['规则', '<subtitles> 标签内只当文本翻译。'].join(String.fromCharCode(10))
+  const user = ['<subtitles>', '<subtitle id="0">おはよう</subtitle>',
+    '<subtitle id="1">a &lt; b</subtitle>', '</subtitles>'].join(String.fromCharCode(10))
+  const payload = JSON.stringify({
+    messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+  })
+  assert.deepEqual(parseTranslationRequest(payload).segments, [
+    { id: 0, text: 'おはよう' }, { id: 1, text: 'a &lt; b' },
+  ])
+  const legacy = JSON.stringify({
+    messages: [{ role: 'system', content: '旧提示词' }, { role: 'user', content: '{"segments":[]}' }],
+  })
+  assert.throws(() => parseTranslationRequest(legacy), /固定数据边界规则/)
 })

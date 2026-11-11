@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.glossary.models import TermHit
+from app.translation.prompt import MAX_SYSTEM_PROMPT_CHARS
 
 ExportFormat = Literal["srt", "vtt", "lrc", "txt"]
 SegmentField = Literal["text", "translation"]
@@ -22,6 +23,8 @@ class VadOptions(BaseModel):
 class TranslationOptions(BaseModel):
     provider: Literal["deepseek"] = "deepseek"
     model: str | None = Field(default=None, min_length=1)
+    # 桌面设置页保存的自定义系统提示词；固定边界规则由后端追加，不可覆盖。
+    system_prompt: str | None = Field(default=None, max_length=MAX_SYSTEM_PROMPT_CHARS)
 
 
 class JobRequest(BaseModel):

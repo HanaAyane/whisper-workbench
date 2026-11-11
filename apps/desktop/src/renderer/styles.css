@@ -262,6 +262,12 @@ button.small { min-height: 28px; padding: 4px 8px; }
 .entry-form, .preview-result { background: var(--quiet); padding: 10px; border-radius: 10px; }
 .entry-actions, .preview-result h3:not(:first-child) { margin-top: 10px; }
 .glossary-preview > button { justify-self: start; }
+.prompt-card { grid-column: 1 / -1; }
+.prompt-label { display: grid; gap: 4px; }
+.prompt-editor { min-height: 120px; font: 13px/1.6 ui-monospace, Consolas, monospace; }
+.prompt-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.prompt-rules summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+.prompt-rules pre { margin: 6px 0 0; padding: 10px; border-radius: 8px; background: var(--quiet); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.55 ui-monospace, Consolas, monospace; color: var(--muted); }
 
 @media (prefers-reduced-transparency: reduce) {
   .glass, .glass[data-kind="dark"] {
