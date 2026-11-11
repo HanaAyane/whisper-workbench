@@ -57,6 +57,13 @@ export function App() {
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
 
+  // 成功提示不长期停留，避免盖住下面的录音和提交按钮；错误提示保留到用户关闭。
+  useEffect(() => {
+    if (notice?.kind !== 'success') return
+    const timer = window.setTimeout(() => setNotice(null), 6000)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
   const asrModels = catalog?.models.filter((model) => model.type === 'asr') ?? []
   const modelWarning = connection === 'online' && !asrModels.some((model) => model.ok)
   const showModelWarning = modelWarning && (page === 'compose' || page === 'workbench')
