@@ -4,12 +4,12 @@
 
 ## Sub-features
 
-- `record-start` 从工作台的麦克风按钮开始录音。
+- `record-start` 从「新建」的麦克风按钮开始录音。
 - `record-stop` 停止后显示 `录音已就绪`。
 
 ## How to get to it (user POV)
 
-- 打开应用后留在「工作台」。
+- 打开应用后在「新建」。也可以再点一次「新建」。
 - 点击麦克风按钮。录音中同一个按钮的名称变为「停止录音」。
 - 再次点击，等待「录音已就绪」。
 
@@ -21,7 +21,7 @@ Preconditions:
 - launch 前设置 `VERIFY_DESKTOP_FAKE_MIC=1`。helper 会加上 Chromium 的 `--use-fake-device-for-media-stream`。
 - 不点击「开始处理」。
 
-- **确认在工作台。** 运行 `node .cursor/skills/verify-desktop/control.mjs click --role button --name 工作台`。
+- **确认在新建。** 运行 `node .cursor/skills/verify-desktop/control.mjs click --role button --name 新建`。
 - **开始录音。** 运行 `node .cursor/skills/verify-desktop/control.mjs click --role button --name 开始录音`。按钮变为「停止录音」。运行 `node .cursor/skills/verify-desktop/control.mjs wait --role button --name 停止录音 --exact`，再运行 `node .cursor/skills/verify-desktop/control.mjs shot --path record-ready/recording.png`。
 - **停止录音。** 运行 `node .cursor/skills/verify-desktop/control.mjs click --role button --name 停止录音`。运行 `node .cursor/skills/verify-desktop/control.mjs wait --text 录音已就绪 --exact`，再运行 `node .cursor/skills/verify-desktop/control.mjs shot --path record-ready/ready.png` 和 `node .cursor/skills/verify-desktop/control.mjs aria --path record-ready/ready.aria.txt`。
 
