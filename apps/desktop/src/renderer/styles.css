@@ -241,10 +241,13 @@ button.small { min-height: 28px; padding: 4px 8px; }
 .export-label strong { font-size: 13px; }
 .export-label p { margin: 0; }
 
-.settings-page, .glossary-page { display: flex; flex-direction: column; gap: 8px; min-height: 0; height: 100%; padding: 8px; overflow: auto; }
-.settings-grid, .glossary-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .85fr); gap: 16px; align-items: start; }
+.settings-page, .glossary-page { display: flex; flex-direction: column; gap: 8px; min-height: 0; padding: 8px; overflow: auto; }
+.glossary-page { height: 100%; }
+.settings-page { flex: none; align-self: stretch; }
+.settings-grid, .glossary-grid { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(280px, .85fr); gap: 16px; align-items: start; align-content: start; }
 .settings-card, .glossary-library, .glossary-preview { display: grid; gap: 12px; align-content: start; min-width: 0; }
-.setting-line { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.settings-card { gap: 8px; }
+.setting-line { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .setting-line p { overflow-wrap: anywhere; margin-top: 2px; }
 .setting-line strong { font-size: 13px; }
 .privacy-box { display: flex; gap: 8px; align-items: flex-start; padding: 10px; border-radius: 10px; background: var(--quiet); font-size: 13px; }

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { FolderOpen, RefreshCw, ShieldCheck } from 'lucide-react'
+import { FolderOpen, RefreshCw } from 'lucide-react'
 import type { ComputeType, Device, ModelCatalog } from '../../shared/api'
 import { errorText } from '../format'
 import { useWorkbench } from '../store'
@@ -63,29 +63,31 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
     <section className="settings-card">
       <div className="pane-heading"><h2>模型与文件</h2><p>本机目录</p></div>
       {discovery ? <div className="setting-line">
-        <div><strong>模型目录</strong><p>{modelDirectory ?? '尚未连接本地服务'}</p></div>
+        <div>
+          <strong>模型目录</strong>
+          <p>{modelDirectory ?? '尚未连接本地服务'}</p>
+          {hints && <>
+            <p>放置位置示例：{hints.model_directory}{sep}{hints.example_subdirectory}{sep}</p>
+            <p>所需文件：{hints.expected_files.join('、')}</p>
+            <p>VAD 文件放在模型目录根：{hints.vad_files.join('、')}。{hints.note}</p>
+          </>}
+        </div>
         <div className="button-row">
           <button disabled={busy || !catalog} onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
           <button disabled={busy} onClick={() => void rescan()}><RefreshCw size={16} /> {busy ? '正在扫描' : '重新扫描'}</button>
         </div>
       </div> : <div className="setting-line">
-        <div><strong>模型清单</strong><p>{catalog?.manifest_path ?? '尚未连接本地服务'}</p></div>
+        <div>
+          <strong>模型清单</strong>
+          <p>{catalog?.manifest_path ?? '尚未连接本地服务'}</p>
+          {catalog?.errors.map((error) => <p className="privacy-warning" key={error}>{error}</p>)}
+        </div>
         <div className="button-row">
           <button disabled={busy || !catalog} onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
           <button disabled={busy} onClick={() => void changeModelDirectory()}>{busy ? '正在切换' : '选择目录'}</button>
         </div>
       </div>}
-
-      {discovery && hints && <div className={`privacy-box ${catalog?.models_ok ? '' : 'attention'}`}>
-        <div>
-          <strong>放置模型</strong>
-          <p>放置位置示例：{hints.model_directory}{sep}{hints.example_subdirectory}{sep}</p>
-          <p>所需文件：{hints.expected_files.join('、')}</p>
-          <p>VAD 文件放在模型目录根：{hints.vad_files.join('、')}。{hints.note}</p>
-        </div>
-      </div>}
-
-      {catalog?.errors.map((error) => <p className="privacy-warning" key={error}>{error}</p>)}
+      {discovery && catalog?.errors.map((error) => <p className="privacy-warning" key={error}>{error}</p>)}
       {catalog?.models.map((model) => <div className="setting-line" key={model.id}>
         <div><strong>{model.label}</strong><p>{model.path}</p>
           {!model.ok && model.files.length > 0 && <p>缺少文件：{missingFiles(model.files)}</p>}
@@ -100,18 +102,14 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
     </section>
     <section className="settings-card">
       <div className="pane-heading"><h2>推理配置</h2><p>应用于新任务</p></div>
-      <div className="form-grid">
-        <label>推理设备<select value={device ?? ''} onChange={(event) => setDevice(event.target.value as Device || null)}>
-          <option value="">服务默认</option><option value="auto">自动</option><option value="cpu">CPU</option><option value="cuda">CUDA</option>
-        </select></label>
-        <label>计算类型<select value={computeType ?? ''} onChange={(event) => setComputeType(event.target.value as ComputeType || null)}>
-          <option value="">模型默认</option>{['int8', 'int8_float16', 'float16', 'bfloat16'].map((type) => <option key={type}>{type}</option>)}
-        </select></label>
-      </div>
-      <div className="privacy-box"><ShieldCheck size={20} /><div><strong>本地转录</strong>
-        <p>音频始终留在本机。选择 DeepSeek 翻译时，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。API Key 由本地 .env 或环境变量提供。</p>
-        <p>历史任务、原始字幕和已保存编辑存放在本机任务库。</p>
-      </div></div>
+      <label>推理设备<select value={device ?? ''} onChange={(event) => setDevice(event.target.value as Device || null)}>
+        <option value="">服务默认</option><option value="auto">自动</option><option value="cpu">CPU</option><option value="cuda">CUDA</option>
+      </select></label>
+      <label>计算类型<select value={computeType ?? ''} onChange={(event) => setComputeType(event.target.value as ComputeType || null)}>
+        <option value="">模型默认</option>{['int8', 'int8_float16', 'float16', 'bfloat16'].map((type) => <option key={type}>{type}</option>)}
+      </select></label>
+      <p className="muted">音频始终留在本机。选择 DeepSeek 翻译时，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。API Key 由本地 .env 或环境变量提供。</p>
+      <p className="muted">历史任务、原始字幕和已保存编辑存放在本机任务库。</p>
     </section>
     </div>
   </div>
