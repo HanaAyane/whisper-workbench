@@ -13,6 +13,7 @@ from faster_whisper import WhisperModel
 
 from app.config import Settings
 from app.model_catalog import MODEL_FILES
+from app.model_discovery import build_manifest
 
 
 class ModelError(RuntimeError):
@@ -59,6 +60,8 @@ class ModelManager:
         self._loaded: dict[tuple[str, str, str], LoadedModel] = {}
 
     def _read_manifest(self) -> dict:
+        if self.settings.models_root is not None:
+            return build_manifest(self.settings.models_root)
         try:
             manifest = json.loads(self.settings.manifest_path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:

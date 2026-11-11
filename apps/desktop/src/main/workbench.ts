@@ -6,10 +6,10 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { dialog, shell, type BrowserWindow } from 'electron'
 import { exportFormats, mediaExtensions } from '../shared/api.js'
 import type {
-  DesktopJob, ExportFormat, JobInput, JobOptions, ModelCatalog, OverwritePolicy, SegmentEdit, SegmentReview,
+  DesktopJob, ExportFormat, JobInput, JobOptions, MediaCheck, ModelCatalog, OverwritePolicy, SegmentEdit, SegmentReview,
 } from '../shared/api.js'
 import { Sidecar, SidecarResponseError, type SidecarConnection } from './sidecar.js'
-import { writeExportFile } from './export-file.js'
+import { writeExportFile, writeSubtitleWithUniqueName } from './export-file.js'
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024
 const TEMP_RECORDING = /^recording-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.webm$/
@@ -29,6 +29,7 @@ export class Workbench {
   private readonly watching = new Set<string>()
   private readonly recordingWrites = new Set<Promise<void>>()
   private readonly modelSelectionPath: string
+  private readonly modelRoot?: string
   private modelsDir?: string
   private outputDir?: string
   private submissions = 0
@@ -43,13 +44,23 @@ export class Workbench {
   ) {
     this.sidecar = new Sidecar(root, packaged, dataDir)
     this.modelSelectionPath = join(dataDir, 'model-directory.json')
+    // Windows 安装版把模型放在 <安装目录>/model，应用按安装位置定位并自动扫描。
+    this.modelRoot = packaged && process.platform === 'win32' ? join(dirname(process.execPath), 'model') : undefined
   }
 
   async initialize(modelTemplate?: string) {
     const saved: unknown = await readFile(this.modelSelectionPath, 'utf8')
       .then((content) => JSON.parse(content)).catch(() => null)
     if (typeof saved === 'string' && isAbsolute(saved)) this.modelsDir = saved
+    if (this.modelRoot) {
+      // 首次启动时确保 model/ 存在，便于用户直接放入模型文件。
+      await mkdir(this.modelRoot, { recursive: true }).catch(() => {
+        console.warn('无法创建安装目录下的 model 目录，请在设置中查看模型目录并检查权限。')
+      })
+      return
+    }
     if (!modelTemplate) return
+    // 非 Windows 平台沿用清单模板，保持既有打包行为。
     const directory = join(this.dataDir, 'models')
     await mkdir(directory, { recursive: true })
     try {
@@ -62,7 +73,7 @@ export class Workbench {
   connect() {
     if (this.closing) throw new Error('工作台正在关闭。')
     if (this.switchingModelDirectory) throw new Error('正在切换模型目录，请稍后重试。')
-    return this.sidecar.connect(this.modelsDir)
+    return this.sidecar.connect(this.modelsDir, this.modelsDir ? undefined : this.modelRoot)
   }
 
   async registerAudio(path: string) {
@@ -76,6 +87,27 @@ export class Workbench {
     return { id, name: basename(path) }
   }
 
+  /** 逐个校验批量导入的媒体真实路径；无效项也返回稳定 id 供界面展示原因。 */
+  async registerAudios(paths: string[]): Promise<MediaCheck[]> {
+    if (!Array.isArray(paths)) throw new Error('媒体文件列表无效。')
+    const checks: MediaCheck[] = []
+    for (const path of paths) {
+      const id = randomUUID()
+      const name = typeof path === 'string' && path ? basename(path) : '未知文件'
+      if (typeof path !== 'string' || !path || !mediaExtensions.includes(extname(path).slice(1).toLowerCase())) {
+        checks.push({ id, name, ok: false, error: '不支持的音频或视频格式。' })
+        continue
+      }
+      if (!(await stat(path).catch(() => null))?.isFile()) {
+        checks.push({ id, name, ok: false, error: '无法读取该媒体文件。' })
+        continue
+      }
+      this.files.set(id, path)
+      checks.push({ id, name, ok: true })
+    }
+    return checks
+  }
+
   async pickAudioFile() {
     const result = await dialog.showOpenDialog(this.window(), {
       title: '选择音频或视频',
@@ -83,6 +115,15 @@ export class Workbench {
       filters: [{ name: '音频和视频', extensions: mediaExtensions }],
     })
     return result.canceled ? null : this.registerAudio(result.filePaths[0])
+  }
+
+  async pickAudioFiles() {
+    const result = await dialog.showOpenDialog(this.window(), {
+      title: '选择音频或视频（可多选）',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: '音频和视频', extensions: mediaExtensions }],
+    })
+    return result.canceled ? null : this.registerAudios(result.filePaths)
   }
 
   async pickModelDirectory() {
@@ -122,10 +163,15 @@ export class Workbench {
 
   async openModelDirectory() {
     const catalog = await (await this.connect()).request<ModelCatalog>('/models')
-    const directory = dirname(catalog.manifest_path)
+    const directory = catalog.model_directory ?? dirname(catalog.manifest_path)
     await mkdir(directory, { recursive: true })
     const error = await shell.openPath(directory)
     if (error) throw new Error('无法打开模型目录，请在文件管理器中访问设置页显示的路径。')
+  }
+
+  /** 重新扫描安装目录 model/：后端按目录实时扫描，无需重启本地服务。 */
+  async rescanModels() {
+    return (await this.connect()).request<ModelCatalog>('/models')
   }
 
   async pickOutputDirectory() {
@@ -225,6 +271,28 @@ export class Workbench {
       throw new Error('无法保存字幕，请检查目录权限或磁盘空间。', { cause: error })
     }
     return target
+  }
+
+  /**
+   * 批量自动导出：读取已保存字幕，写入整批选定的输出目录。
+   * 与单任务导出共用后端 writer 与 `writeExportFile`，同名时自动追加序号。
+   */
+  async exportJobToDirectory(id: string, format: ExportFormat, directory: string, baseName: string) {
+    if (!exportFormats.includes(format)) throw new Error('字幕格式无效。')
+    if (typeof directory !== 'string' || !isAbsolute(directory)) throw new Error('输出目录无效。')
+    if (!(await stat(directory).catch(() => null))?.isDirectory()) throw new Error('输出目录不存在或无法访问。')
+    const connection = await this.connect()
+    const path = jobPath(id)
+    const value = await connection.request<DesktopJob>(path)
+    if (value.state !== 'succeeded') throw new Error('任务完成后才能导出字幕。')
+    const content = await connection.request<string>(`${path}/export`, {
+      method: 'POST', body: { format }, text: true,
+    })
+    try {
+      return await writeSubtitleWithUniqueName(directory, typeof baseName === 'string' && baseName ? baseName : value.name, format, content)
+    } catch (error) {
+      throw new Error('无法写入字幕文件，请检查输出目录权限或磁盘空间。', { cause: error })
+    }
   }
 
   async saveTextFile(name: string, content: string) {

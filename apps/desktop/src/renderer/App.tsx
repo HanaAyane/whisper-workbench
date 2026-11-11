@@ -91,7 +91,9 @@ export function App() {
           <span>{notice.message}</span><button type="button" className="icon-button" aria-label="关闭消息" onClick={() => setNotice(null)}><X size={16} /></button>
         </div>}
         {page === 'workbench' && connection === 'online' && !asrModels.some((model) => model.ok) && <div className="notice" role="status">
-          <CircleAlert size={18} /><span>未找到可用的日语转录模型。请放入本地 CT2 模型，或在设置中选择已有清单。</span>
+          <CircleAlert size={18} /><span>{catalog?.source === 'discovery'
+            ? '未找到可用的日语转录模型。请把本地 CT2 模型放入安装目录的 model/ 子目录，再在设置页重新扫描。'
+            : '未找到可用的日语转录模型。请放入本地 CT2 模型，或在设置中选择已有清单。'}</span>
           <button onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
           <button onClick={() => setPage('settings')}>检查模型路径</button>
         </div>}

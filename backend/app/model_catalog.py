@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from app.model_discovery import VAD_METADATA, VAD_MODEL, is_model_directory, model_entry
+
 MODEL_FILES = (
     "model.bin",
     "config.json",
@@ -112,3 +114,76 @@ def inspect_manifest(manifest_path: Path, project_root: Path) -> dict[str, Any]:
         and result["vad"]["ok"]
     )
     return result
+
+
+def inspect_models(settings: Any) -> dict[str, Any]:
+    """存在 models_root 时走安装目录发现，否则保持读取清单文件。"""
+    models_root = getattr(settings, "models_root", None)
+    if models_root is not None:
+        return _inspect_discovery(models_root, settings.project_root)
+    return inspect_manifest(settings.manifest_path, settings.project_root)
+
+
+def _inspect_discovery(root: Path, project_root: Path) -> dict[str, Any]:
+    """扫描安装目录生成报告；读取失败也返回完整结构而不是抛异常。"""
+    root = Path(root)
+    report: dict[str, Any] = {
+        "manifest_path": str((root / "manifest.json").resolve()),
+        "model_directory": str(root),
+        "source": "discovery",
+        "models": [],
+        "vad": {"ok": False, "files": []},
+        "models_ok": False,
+        "errors": [],
+        "hints": {
+            "model_directory": str(root),
+            "example_subdirectory": "whisper-ja-1.5B",
+            "expected_files": list(MODEL_FILES),
+            "vad_files": [VAD_MODEL, VAD_METADATA],
+            "note": (
+                "将 CTranslate2 Whisper 模型文件放入 <模型目录>/<模型子目录>/；"
+                "VAD 文件放入模型目录根。模型权重由用户提供，工作台不会自动下载。"
+            ),
+        },
+    }
+
+    vad_checks = [_check_file(root / VAD_MODEL), _check_file(root / VAD_METADATA)]
+    report["vad"] = {"ok": all(check["ok"] for check in vad_checks), "files": vad_checks}
+
+    if not root.is_dir():
+        report["errors"].append(
+            f"模型目录不存在：{root}。请确认安装完整，或手动创建该目录后重新扫描。"
+        )
+        return report
+
+    try:
+        children = sorted(
+            (child for child in root.iterdir() if child.is_dir()),
+            key=lambda child: child.name.lower(),
+        )
+    except (OSError, PermissionError) as error:
+        report["errors"].append(f"无法访问模型目录，请检查目录权限：{root}（{error}）")
+        return report
+
+    for directory in children:
+        if not is_model_directory(directory):
+            continue
+        checks = [_check_file(directory / name) for name in MODEL_FILES]
+        entry = {**model_entry(directory), "ok": all(c["ok"] for c in checks), "files": checks}
+        report["models"].append(entry)
+        if not entry["ok"]:
+            missing = [
+                name for name, check in zip(MODEL_FILES, checks, strict=True) if not check["ok"]
+            ]
+            report["errors"].append(f"模型 {entry['id']} 缺少文件：{', '.join(missing)}。")
+
+    if not report["models"]:
+        report["errors"].append(
+            f"模型目录中没有发现可用的 CTranslate2 模型：{root}。"
+            f"请在 {root}/whisper-ja-1.5B 放置模型文件。"
+        )
+
+    report["models_ok"] = bool(
+        report["models"] and all(model["ok"] for model in report["models"]) and report["vad"]["ok"]
+    )
+    return report

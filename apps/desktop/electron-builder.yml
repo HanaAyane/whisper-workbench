@@ -19,7 +19,6 @@ afterPack: scripts/after-pack.cjs
 win:
   target:
     - nsis
-    - portable
 nsis:
   artifactName: '${productName}-${version}-win-${arch}-setup.${ext}'
   oneClick: false
@@ -27,11 +26,11 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: false
   deleteAppDataOnUninstall: false
+  # 安装时在安装目录创建 model/ 并写入模型放置说明，见 scripts/installer.nsh。
+  include: scripts/installer.nsh
   installerLanguages:
     - zh_CN
     - en_US
-portable:
-  artifactName: '${productName}-${version}-win-${arch}-portable.${ext}'
 mac:
   artifactName: '${productName}-${version}-mac-${arch}.${ext}'
   category: public.app-category.productivity

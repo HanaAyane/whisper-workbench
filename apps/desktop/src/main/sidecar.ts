@@ -70,8 +70,8 @@ export class Sidecar {
     private readonly dataDir: string,
   ) {}
 
-  connect(modelsDir?: string) {
-    this.pending ??= this.start(modelsDir)
+  connect(modelsDir?: string, modelsRoot?: string) {
+    this.pending ??= this.start(modelsDir, modelsRoot)
     return this.pending
   }
 
@@ -81,7 +81,7 @@ export class Sidecar {
     await child?.closed
   }
 
-  private async start(modelsDir?: string) {
+  private async start(modelsDir?: string, modelsRoot?: string) {
     const token = randomBytes(32).toString('hex')
     const python = process.env.JP_WORKBENCH_PYTHON || join(
       this.root, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python',
@@ -101,6 +101,11 @@ export class Sidecar {
     if (modelsDir) {
       env.JP_WORKBENCH_MODELS_DIR = modelsDir
       env.JP_WORKBENCH_MANIFEST = join(modelsDir, 'manifest.json')
+    }
+    if (modelsRoot) {
+      // 安装版从 <安装目录>/model 自动发现；后端按目录实时扫描，无需手写 manifest.json。
+      env.JP_WORKBENCH_MODELS_DIR = modelsRoot
+      env.JP_WORKBENCH_MODELS_ROOT = modelsRoot
     }
     const child = spawn(executable, this.packaged ? [] : ['-m', 'app.main'], {
       cwd: this.packaged ? this.root : join(this.root, 'backend'),

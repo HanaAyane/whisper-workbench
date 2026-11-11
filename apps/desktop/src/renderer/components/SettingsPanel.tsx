@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { Cpu, FolderOpen, HardDrive, ShieldCheck } from 'lucide-react'
+import { Cpu, FolderOpen, HardDrive, RefreshCw, ShieldCheck } from 'lucide-react'
 import type { ComputeType, Device, ModelCatalog } from '../../shared/api'
 import { errorText } from '../format'
 import { useWorkbench } from '../store'
+
+function missingFiles(files: { path: string; ok: boolean }[]): string {
+  return files.filter((file) => !file.ok).map((file) => file.path.split(/[\\/]/).pop() ?? file.path).join('、')
+}
 
 export function SettingsPanel({ catalog, onCatalog, onError }: {
   catalog: ModelCatalog | null
@@ -16,6 +20,21 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
   const outputDir = useWorkbench((state) => state.outputDir)
   const setOutputDir = useWorkbench((state) => state.setOutputDir)
   const [busy, setBusy] = useState(false)
+  const discovery = catalog?.source === 'discovery'
+  const hints = catalog?.hints
+  const modelDirectory = catalog?.model_directory ?? (catalog ? catalog.manifest_path.replace(/[\\/][^\\/]+$/, '') : undefined)
+  const sep = hints?.model_directory.includes('\\') ? '\\' : '/'
+
+  async function rescan() {
+    setBusy(true)
+    try {
+      onCatalog(await window.api.rescanModels())
+    } catch (error) {
+      onError(errorText(error))
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function changeModelDirectory() {
     setBusy(true)
@@ -41,19 +60,37 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
   return <div className="settings-grid">
     <section className="solid settings-card">
       <div className="panel-heading"><div className="icon-tile"><HardDrive size={20} /></div><div><h2>模型与文件</h2><p>本机目录</p></div></div>
-      <div className="setting-line">
+      {discovery ? <div className="setting-line">
+        <div><strong>模型目录</strong><p>{modelDirectory ?? '尚未连接本地服务'}</p></div>
+        <div className="button-row">
+          <button disabled={busy || !catalog} onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
+          <button disabled={busy} onClick={() => void rescan()}><RefreshCw size={16} /> {busy ? '正在扫描' : '重新扫描'}</button>
+        </div>
+      </div> : <div className="setting-line">
         <div><strong>模型清单</strong><p>{catalog?.manifest_path ?? '尚未连接本地服务'}</p></div>
         <div className="button-row">
           <button disabled={busy || !catalog} onClick={() => void window.api.openModelDirectory().catch((error) => onError(errorText(error)))}><FolderOpen size={16} /> 打开模型目录</button>
           <button disabled={busy} onClick={() => void changeModelDirectory()}>{busy ? '正在切换' : '选择目录'}</button>
         </div>
-      </div>
+      </div>}
+
+      {discovery && hints && <div className={`privacy-box ${catalog?.models_ok ? '' : 'attention'}`}>
+        <div>
+          <strong>放置模型</strong>
+          <p>放置位置示例：{hints.model_directory}{sep}{hints.example_subdirectory}{sep}</p>
+          <p>所需文件：{hints.expected_files.join('、')}</p>
+          <p>VAD 文件放在模型目录根：{hints.vad_files.join('、')}。{hints.note}</p>
+        </div>
+      </div>}
+
       {catalog?.errors.map((error) => <p className="privacy-warning" key={error}>{error}</p>)}
       {catalog?.models.map((model) => <div className="setting-line" key={model.id}>
-        <div><strong>{model.label}</strong><p>{model.path}</p>{!model.ok && <p>缺少 {model.files.filter((file) => !file.ok).length} 个模型文件</p>}</div>
-        <span className="label-pill">{model.ok ? '可用' : '缺失'}</span>
+        <div><strong>{model.label}</strong><p>{model.path}</p>
+          {!model.ok && model.files.length > 0 && <p>缺少文件：{missingFiles(model.files)}</p>}
+        </div>
+        <span className="label-pill">{model.ok ? '可用' : '未就绪'}</span>
       </div>)}
-      {catalog?.vad && <p className="muted">语音检测 · {catalog.vad.ok ? '本地 ONNX' : '使用能量检测'}</p>}
+      {catalog?.vad && <p className="muted">语音检测 · {catalog.vad.ok ? '本地 ONNX' : '未找到 VAD，使用能量阈值回退'}{catalog.vad.ok || catalog.vad.files.length === 0 ? '' : `（缺少：${missingFiles(catalog.vad.files)}）`}</p>}
       <div className="setting-line">
         <div><strong>默认导出目录</strong><p>{outputDir ?? '由保存对话框选择'}</p></div>
         <button onClick={() => void changeOutputDirectory()}><FolderOpen size={16} /> 选择目录</button>

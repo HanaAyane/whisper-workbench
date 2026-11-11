@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Request
 
-from app.model_catalog import inspect_manifest
+from app.model_catalog import inspect_models
 
 router = APIRouter()
 
@@ -12,4 +12,4 @@ router = APIRouter()
 @router.get("/models")
 def models(request: Request) -> dict[str, Any]:
     settings = request.app.state.settings
-    return inspect_manifest(settings.manifest_path, settings.project_root)
+    return inspect_models(settings)

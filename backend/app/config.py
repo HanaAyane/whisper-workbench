@@ -26,6 +26,7 @@ class Settings:
     token: str | None = None
     jobs_path: Path | None = None
     recordings_dir: Path | None = None
+    models_root: Path | None = None
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -40,6 +41,7 @@ class Settings:
             raise ValueError("设备仅支持 auto、cpu 或 cuda。")
         if compute_type not in {"int8", "int8_float16", "float16", "bfloat16"}:
             raise ValueError("计算类型仅支持 int8、int8_float16、float16 或 bfloat16。")
+        models_root_env = os.environ.get("JP_WORKBENCH_MODELS_ROOT")
         return cls(
             project_root=root,
             models_dir=models,
@@ -51,5 +53,10 @@ class Settings:
             jobs_path=_path("JP_WORKBENCH_JOBS_DB", root / "data" / "jobs.sqlite3", root),
             recordings_dir=_path(
                 "JP_WORKBENCH_RECORDINGS_DIR", root / "data" / "recordings-tmp", root
+            ),
+            models_root=(
+                _path("JP_WORKBENCH_MODELS_ROOT", Path(models_root_env), root)
+                if models_root_env
+                else None
             ),
         )

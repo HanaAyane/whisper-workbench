@@ -26,12 +26,26 @@ export interface ModelInfo {
   files: FileCheck[]
 }
 
+export interface ModelHints {
+  model_directory: string
+  example_subdirectory: string
+  expected_files: string[]
+  vad_files: string[]
+  note: string
+}
+
 export interface ModelCatalog {
   manifest_path: string
   models: ModelInfo[]
   vad: { ok: boolean; files: FileCheck[] } | null
   models_ok: boolean
   errors: string[]
+  /** 安装版从 model/ 目录自动发现时的目录路径；清单模式为空。 */
+  model_directory?: string
+  /** 'discovery' 表示由安装目录 model/ 自动扫描，'manifest' 表示读取清单文件。 */
+  source?: 'discovery' | 'manifest'
+  /** 自动发现时给出的放置示例与模型获取说明。 */
+  hints?: ModelHints
 }
 
 export interface Glossary {
@@ -107,6 +121,8 @@ export interface DesktopJob {
 }
 
 export interface AudioFile { id: string; name: string }
+/** 批量导入时每个文件的校验结果：id 临时有效，ok=false 时 error 说明原因。 */
+export interface MediaCheck { id: string; name: string; ok: boolean; error?: string }
 export type JobInput =
   | { kind: 'file'; id: string }
   | { kind: 'recording'; data: ArrayBuffer; keep: boolean }
@@ -123,16 +139,20 @@ export interface WorkbenchApi {
   health(): Promise<Health>
   models(): Promise<ModelCatalog>
   pickAudioFile(): Promise<AudioFile | null>
+  pickAudioFiles(): Promise<MediaCheck[] | null>
   registerDroppedAudio(file: File): Promise<AudioFile>
+  registerDroppedAudios(files: File[]): Promise<MediaCheck[]>
   createJob(input: JobInput, options: JobOptions): Promise<DesktopJob>
   listJobs(): Promise<DesktopJob[]>
   cancelJob(jobId: string): Promise<void>
   updateSegment(jobId: string, segmentId: number, edit: SegmentEdit): Promise<void>
   reviewSegment(jobId: string, segmentId: number, decision: SegmentReview): Promise<void>
   exportJob(jobId: string, format: ExportFormat, policy: OverwritePolicy): Promise<string | null>
+  exportJobToDirectory(jobId: string, format: ExportFormat, directory: string, baseName: string): Promise<string>
   onJobUpdate(callback: (job: DesktopJob) => void): () => void
   pickModelDirectory(): Promise<ModelCatalog | null>
   openModelDirectory(): Promise<void>
+  rescanModels(): Promise<ModelCatalog>
   pickOutputDirectory(): Promise<string | null>
   listGlossaries(): Promise<Glossary[]>
   readGlossary(id: string): Promise<Entry[]>
