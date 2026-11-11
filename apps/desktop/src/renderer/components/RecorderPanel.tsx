@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { AudioLines, CircleAlert, CircleCheck, FileAudio, Mic, Plus, Square, Trash2, Upload, X } from 'lucide-react'
+import { CircleAlert, CircleCheck, FileAudio, Mic, Plus, Square, Trash2, Upload, X } from 'lucide-react'
 import type { DesktopJob, Glossary, JobOptions, MediaCheck, ModelInfo } from '../../shared/api'
 import { exportFormats, mediaExtensions, type ExportFormat } from '../../shared/api'
-import { activeJob, errorText, timeLabel } from '../format'
-import { Glass } from '../Glass'
+import { activeJob, byteLabel, errorText, sampleLabel, timeLabel } from '../format'
 import { useWorkbench } from '../store'
 
 interface Props {
@@ -236,17 +235,13 @@ export function RecorderPanel({ models, glossaries, connected, onCreated, onErro
     return { kind: 'pending', text: `${jobStates[job.state]} · ${job.message}` }
   }
 
-  return <Glass className="capture">
-    <div className="panel-heading">
-      <div className="icon-tile"><AudioLines size={20} /></div>
-      <div><h2>新建转录</h2><p>录制日语语音，或批量导入已有媒体</p></div>
-    </div>
-    <div className="capture-options">
+  return <section className="compose">
+    <div className="compose-top">
       <div className={`mic-area ${status === 'recording' ? 'recording' : ''}`}>
         <button className="mic-button" type="button" aria-label={status === 'recording' ? '停止录音' : '开始录音'}
           disabled={status === 'opening' || status === 'stopping' || submitting}
           onClick={() => status === 'recording' ? stopRecording() : void startRecording()}>
-          {status === 'recording' ? <Square size={21} fill="currentColor" /> : <Mic size={25} />}
+          {status === 'recording' ? <Square size={18} fill="currentColor" /> : <Mic size={20} />}
         </button>
         <strong className="clock">{timeLabel(elapsed)}</strong>
         <span className="muted">{status === 'recording' ? '正在录音' : status === 'opening' ? '等待麦克风' : recording ? '录音已就绪' : '麦克风录音'}</span>
@@ -262,73 +257,86 @@ export function RecorderPanel({ models, glossaries, connected, onCreated, onErro
           if (event.dataTransfer.files.length === 0) { onError('请拖入至少一个媒体文件。'); return }
           void selectFiles(window.api.registerDroppedAudios(Array.from(event.dataTransfer.files)))
         }}>
-        <Upload size={22} />
+        <Upload size={18} />
         <strong>拖入多个文件，或点击多选</strong>
         <span className="muted">{mediaExtensions.map((extension) => extension.toUpperCase()).join(' / ')}</span>
       </button>
     </div>
 
+    <div className="file-stack">
     {recording && <div className="selected-media">
-      <FileAudio size={16} /><span>麦克风录音.webm</span>
+      <FileAudio size={15} /><span>麦克风录音.webm</span>
       <label className="inline"><input type="checkbox" checked={keep} disabled={busy} onChange={(event) => setKeep(event.target.checked)} />保留录音副本</label>
-      <button className="icon-button" type="button" aria-label="移除录音" disabled={busy} onClick={() => { setRecording(null); setElapsed(0) }}><X size={16} /></button>
+      <button className="icon-button" type="button" aria-label="移除录音" disabled={busy} onClick={() => { setRecording(null); setElapsed(0) }}><X size={15} /></button>
     </div>}
 
-    {rows.length > 0 && <div className="batch-list" aria-label="待处理文件列表">
-      {rows.map((row) => {
-        const state = rowStatus(row)
-        const job = row.jobId ? jobs[row.jobId] : undefined
-        return <div className={`selected-media batch-row ${state.kind}`} key={row.file.id}>
-          <FileAudio size={16} />
-          <span className="batch-name">{row.file.name}</span>
-          <span className={`batch-status ${state.kind}`} role="status">
-            {state.kind === 'error' ? <CircleAlert size={14} /> : state.kind === 'success' ? <CircleCheck size={14} /> : null}
-            {state.text}
-          </span>
-          {job && activeJob(job) && <progress max={1} value={job.progress} aria-label="任务进度" />}
-          {row.export === 'failed' && <button type="button" className="mini" onClick={() => retry(row)}>重新导出</button>}
-          <button className="icon-button" type="button" aria-label={`移除 ${row.file.name}`}
-            disabled={busy || row.jobId !== null}
-            onClick={() => setRows((current) => current.filter((item) => item.file.id !== row.file.id))}><Trash2 size={15} /></button>
-        </div>
-      })}
-    </div>}
-
-    <div className="form-grid capture-form">
-      <label>转录模型<select value={modelId} onChange={(event) => setModel(event.target.value)} disabled={submitting}>
-        {!modelId && <option value="">暂无可用模型</option>}
-        {models.map((model) => <option key={model.id} value={model.id} disabled={!model.ok}>{model.label}{model.ok ? '' : '（文件缺失）'}</option>)}
-      </select></label>
-      <label>处理模式<select value={mode} onChange={(event) => setMode(event.target.value as JobOptions['mode'])} disabled={submitting}>
-        <option value="transcribe">仅日语转录</option><option value="translate">日语转录 + 中文翻译</option>
-      </select></label>
-      <label>应用词表<select value={glossaries.some((item) => item.id === glossary) ? glossary : ''} onChange={(event) => setGlossary(event.target.value)} disabled={submitting}>
-        <option value="">不使用词表</option>{glossaries.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
-      </select></label>
+    <div className="file-pane">
+      <table className="file-table">
+        <thead><tr><th>名称</th><th>采样</th><th>体积</th><th>状态</th><th><span className="sr-only">操作</span></th></tr></thead>
+        <tbody>
+          {rows.length === 0 ? <tr><td className="empty-files" colSpan={5}>还没有待提交的文件。录音或拖入媒体后，会列在这里。</td></tr>
+            : rows.map((row) => {
+              const state = rowStatus(row)
+              const job = row.jobId ? jobs[row.jobId] : undefined
+              return <tr className={`batch-row ${state.kind}`} key={row.file.id}>
+                <td className="batch-name"><FileAudio size={14} />{row.file.name}</td>
+                <td>{sampleLabel(row.file)}</td>
+                <td>{row.file.bytes === undefined ? '—' : byteLabel(row.file.bytes)}</td>
+                <td>
+                  <span className={`batch-status ${state.kind}`} role="status">
+                    {state.kind === 'error' ? <CircleAlert size={13} /> : state.kind === 'success' ? <CircleCheck size={13} /> : null}
+                    {state.text}
+                  </span>
+                  {job && activeJob(job) && <progress max={1} value={job.progress} aria-label="任务进度" />}
+                  {row.export === 'failed' && <button type="button" className="mini" onClick={() => retry(row)}>重新导出</button>}
+                </td>
+                <td>
+                  <button className="icon-button" type="button" aria-label={`移除 ${row.file.name}`}
+                    disabled={busy || row.jobId !== null}
+                    onClick={() => setRows((current) => current.filter((item) => item.file.id !== row.file.id))}><Trash2 size={14} /></button>
+                </td>
+              </tr>
+            })}
+        </tbody>
+      </table>
+    </div>
     </div>
 
-    {rows.length > 0 && <div className="form-grid capture-form">
-      <label>批量输出格式<select value={batchFormat} onChange={(event) => setBatchFormat(event.target.value as ExportFormat)} disabled={submitting}>
-        {exportFormats.map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
-      </select></label>
-      <label>字幕输出目录
+    <div className="compose-bar">
+      <div className="form-grid capture-form">
+        <label>转录模型<select value={modelId} onChange={(event) => setModel(event.target.value)} disabled={submitting}>
+          {!modelId && <option value="">暂无可用模型</option>}
+          {models.map((model) => <option key={model.id} value={model.id} disabled={!model.ok}>{model.label}{model.ok ? '' : '（文件缺失）'}</option>)}
+        </select></label>
+        <label>处理模式<select value={mode} onChange={(event) => setMode(event.target.value as JobOptions['mode'])} disabled={submitting}>
+          <option value="transcribe">仅日语转录</option><option value="translate">日语转录 + 中文翻译</option>
+        </select></label>
+        <label>应用词表<select value={glossaries.some((item) => item.id === glossary) ? glossary : ''} onChange={(event) => setGlossary(event.target.value)} disabled={submitting}>
+          <option value="">不使用词表</option>{glossaries.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}
+        </select></label>
+      </div>
+      {rows.length > 0 && <div className="form-grid capture-form">
+        <label>批量输出格式<select value={batchFormat} onChange={(event) => setBatchFormat(event.target.value as ExportFormat)} disabled={submitting}>
+          {exportFormats.map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
+        </select></label>
+        <label>字幕输出目录
+          <div className="button-row">
+            <span className="muted path-ellipsis">{outputDir ?? '未选择（批量转录前必选）'}</span>
+            <button type="button" onClick={() => void chooseOutputDirectory()} disabled={submitting}>选择</button>
+          </div>
+        </label>
+      </div>}
+      <div className="capture-footer">
+        <p className={mode === 'translate' ? 'privacy-warning' : 'muted'}>{mode === 'translate'
+          ? '提交后，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。音频在本地处理。'
+          : batchMode ? '按列表顺序进入单 worker 队列，成功后自动把已保存字幕写入所选目录。' : '音频仅在本机处理 · 默认使用本地转录'}</p>
         <div className="button-row">
-          <span className="muted path-ellipsis">{outputDir ?? '未选择（批量转录前必选）'}</span>
-          <button type="button" onClick={() => void chooseOutputDirectory()} disabled={submitting}>选择</button>
+          {rows.length > 0 && <button type="button" disabled={busy} onClick={() => setRows([])}>清空列表</button>}
+          <button className="primary" disabled={busy || !connected || !modelId || (rows.length === 0 && !recording) || (batchMode && !outputDir)} onClick={() => void submit()}>
+            <Plus size={16} /> {submitting ? '正在提交' : batchMode ? `开始批量处理（${pendingCount}）` : '开始处理'}
+          </button>
         </div>
-      </label>
-    </div>}
-
-    <div className="capture-footer">
-      <p className={mode === 'translate' ? 'privacy-warning' : 'muted'}>{mode === 'translate'
-        ? '提交后，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。音频在本地处理。'
-        : batchMode ? '按列表顺序进入单 worker 队列，成功后自动把已保存字幕写入所选目录。' : '音频仅在本机处理 · 默认使用本地转录'}</p>
-      <div className="button-row">
-        {rows.length > 0 && <button type="button" disabled={busy} onClick={() => setRows([])}>清空列表</button>}
-        <button className="primary" disabled={busy || !connected || !modelId || (rows.length === 0 && !recording) || (batchMode && !outputDir)} onClick={() => void submit()}>
-          <Plus size={17} /> {submitting ? '正在提交' : batchMode ? `开始批量处理（${pendingCount}）` : '开始处理'}
-        </button>
       </div>
     </div>
-  </Glass>
+  </section>
 }

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { writeExportFile, subtitleBaseName, writeSubtitleWithUniqueName } from '../src/main/export-file.ts'
-import { highlightedParts } from '../src/renderer/format.ts'
+import { readMediaInfo } from '../src/main/media-info.ts'
+import { byteLabel, highlightedParts, sampleLabel } from '../src/renderer/format.ts'
 import type { TermHit } from '../src/shared/api.ts'
 
 test('字幕导出保护同名文件，并能按明确策略替换 UTF-8 文件', async () => {
@@ -55,4 +56,28 @@ test('命中高亮按 Python Unicode 字符位置切分，并跳过失效位置'
     { text: '🎙' }, { text: '田中', hit }, { text: 'さん' },
   ])
   assert.deepEqual(highlightedParts('🎙山田さん', [hit]), [{ text: '🎙山田さん' }])
+})
+
+test('WAV 和 FLAC 文件头给出采样率，其他容器不编造采样率', () => {
+  const wav = new Uint8Array(44)
+  wav.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45, 0x66, 0x6d, 0x74, 0x20])
+  const view = new DataView(wav.buffer)
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true)
+  view.setUint16(22, 1, true)
+  view.setUint32(24, 16000, true)
+  view.setUint16(34, 16, true)
+  assert.deepEqual(readMediaInfo(wav), { sampleRate: 16000, channels: 1, bitDepth: 16 })
+
+  const flac = new Uint8Array(42)
+  flac.set([0x66, 0x4c, 0x61, 0x43, 0, 0, 0, 34])
+  flac[18] = 0x0a
+  flac[19] = 0xc4
+  flac[20] = 0x42
+  flac[21] = 0xf0
+  assert.deepEqual(readMediaInfo(flac), { sampleRate: 44100, channels: 2, bitDepth: 16 })
+  assert.deepEqual(readMediaInfo(new Uint8Array([0, 1, 2, 3])), {})
+  assert.equal(sampleLabel({ name: 'clip.mp3' }), 'MP3')
+  assert.equal(sampleLabel({ name: 'take.wav', sampleRate: 48000, channels: 2, bitDepth: 24 }), '48 kHz · 立体声 · 24 bit')
+  assert.equal(byteLabel(1536), '1.5 KB')
 })

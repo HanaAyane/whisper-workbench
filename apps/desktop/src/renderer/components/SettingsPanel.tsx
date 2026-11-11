@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Cpu, FolderOpen, HardDrive, RefreshCw, ShieldCheck } from 'lucide-react'
+import { FolderOpen, RefreshCw, ShieldCheck } from 'lucide-react'
 import type { ComputeType, Device, ModelCatalog } from '../../shared/api'
 import { errorText } from '../format'
 import { useWorkbench } from '../store'
@@ -57,9 +57,11 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
     }
   }
 
-  return <div className="settings-grid">
-    <section className="solid settings-card">
-      <div className="panel-heading"><div className="icon-tile"><HardDrive size={20} /></div><div><h2>模型与文件</h2><p>本机目录</p></div></div>
+  return <div className="settings-page">
+    <header className="pane-heading"><h1>工作台设置</h1><p>配置本地模型、推理设备和字幕保存位置。</p></header>
+    <div className="settings-grid">
+    <section className="settings-card">
+      <div className="pane-heading"><h2>模型与文件</h2><p>本机目录</p></div>
       {discovery ? <div className="setting-line">
         <div><strong>模型目录</strong><p>{modelDirectory ?? '尚未连接本地服务'}</p></div>
         <div className="button-row">
@@ -96,8 +98,8 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
         <button onClick={() => void changeOutputDirectory()}><FolderOpen size={16} /> 选择目录</button>
       </div>
     </section>
-    <section className="solid settings-card">
-      <div className="panel-heading"><div className="icon-tile"><Cpu size={20} /></div><div><h2>推理配置</h2><p>应用于新任务</p></div></div>
+    <section className="settings-card">
+      <div className="pane-heading"><h2>推理配置</h2><p>应用于新任务</p></div>
       <div className="form-grid">
         <label>推理设备<select value={device ?? ''} onChange={(event) => setDevice(event.target.value as Device || null)}>
           <option value="">服务默认</option><option value="auto">自动</option><option value="cpu">CPU</option><option value="cuda">CUDA</option>
@@ -111,5 +113,6 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
         <p>历史任务、原始字幕和已保存编辑存放在本机任务库。</p>
       </div></div>
     </section>
+    </div>
   </div>
 }

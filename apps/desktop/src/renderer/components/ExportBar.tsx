@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { Download } from 'lucide-react'
 import { exportFormats, type DesktopJob, type ExportFormat, type OverwritePolicy } from '../../shared/api'
 import { errorText } from '../format'
-import { Glass } from '../Glass'
 
 export function ExportBar({ job, onError, onSaved }: { job?: DesktopJob; onError(message: string): void; onSaved(message: string): void }) {
   const [format, setFormat] = useState<ExportFormat>('srt')
@@ -20,7 +19,7 @@ export function ExportBar({ job, onError, onSaved }: { job?: DesktopJob; onError
       setSaving(false)
     }
   }
-  return <Glass className="export-bar">
+  return <div className="export-bar">
     <div className="export-label"><Download size={18} /><div><strong>导出字幕</strong><p className="muted">{job?.state === 'succeeded' ? '使用已保存的当前字幕 · UTF-8' : '任务完成后可导出'}</p></div></div>
     <div className="button-row">
       <select aria-label="字幕格式" value={format} onChange={(event) => setFormat(event.target.value as ExportFormat)}>
@@ -32,5 +31,5 @@ export function ExportBar({ job, onError, onSaved }: { job?: DesktopJob; onError
       </select>
       <button className="primary" disabled={saving || job?.state !== 'succeeded'} onClick={() => void save()}>{saving ? '正在保存' : '选择位置并保存'}</button>
     </div>
-  </Glass>
+  </div>
 }

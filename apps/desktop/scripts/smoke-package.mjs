@@ -109,7 +109,7 @@ try {
     await app.evaluate(({ dialog }, dir) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [dir] })
     }, outputDir)
-    await page.getByRole('button', { name: '工作台', exact: true }).click()
+    await page.getByRole('button', { name: '新建', exact: true }).click()
     await page.getByRole('button', { name: /拖入多个文件/ }).click()
     await page.getByRole('button', { name: '开始处理', exact: true }).click()
     const deadline = Date.now() + 180000
@@ -121,6 +121,7 @@ try {
     }
     assert.ok(completed?.segments.length, '冻结的 sidecar 应在安装目录模型上返回非空字幕')
     await page.waitForFunction(() => document.querySelector('.job-row.selected')?.textContent.includes('已完成'))
+    await page.getByRole('button', { name: '工作台', exact: true }).click()
     const output = join(run, 'clip.srt')
     await app.evaluate(({ dialog }, path) => {
       dialog.showSaveDialog = async () => ({ canceled: false, filePath: path })

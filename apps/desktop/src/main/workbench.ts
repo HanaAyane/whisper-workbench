@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { constants } from 'node:fs'
-import { copyFile, lstat, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { copyFile, lstat, mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { dialog, shell, type BrowserWindow } from 'electron'
@@ -10,10 +10,25 @@ import type {
 } from '../shared/api.js'
 import { Sidecar, SidecarResponseError, type SidecarConnection } from './sidecar.js'
 import { writeExportFile, writeSubtitleWithUniqueName } from './export-file.js'
+import { readMediaInfo } from './media-info.js'
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024
 const TEMP_RECORDING = /^recording-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.webm$/
 const active = (job: DesktopJob) => job.state === 'running' || job.state === 'queued'
+
+async function mediaFacts(path: string, bytes: number) {
+  const handle = await open(path, 'r').catch(() => null)
+  if (!handle) return { bytes }
+  try {
+    const head = Buffer.alloc(128)
+    await handle.read(head, 0, head.length, 0)
+    return { bytes, ...readMediaInfo(head) }
+  } catch {
+    return { bytes }
+  } finally {
+    await handle.close()
+  }
+}
 const jobPath = (id: string) => {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,128}$/.test(id)) throw new Error('任务 ID 无效。')
   return `/jobs/${id}`
@@ -98,12 +113,13 @@ export class Workbench {
         checks.push({ id, name, ok: false, error: '不支持的音频或视频格式。' })
         continue
       }
-      if (!(await stat(path).catch(() => null))?.isFile()) {
+      const file = await stat(path).catch(() => null)
+      if (!file?.isFile()) {
         checks.push({ id, name, ok: false, error: '无法读取该媒体文件。' })
         continue
       }
       this.files.set(id, path)
-      checks.push({ id, name, ok: true })
+      checks.push({ id, name, ok: true, ...await mediaFacts(path, file.size) })
     }
     return checks
   }

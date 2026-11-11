@@ -99,7 +99,7 @@ try {
   assert.match(await page.locator('.preview-result').innerText(), /田中太郎/)
   console.log('通过：导入合成词表、Unicode 命中高亮和替换预览。')
 
-  await page.getByRole('button', { name: '工作台', exact: true }).click()
+  await page.getByRole('button', { name: '新建', exact: true }).click()
   await page.getByRole('button', { name: '开始录音', exact: true }).click()
   await page.getByRole('button', { name: '停止录音', exact: true }).waitFor({ timeout: 12000 })
   await page.waitForFunction(() => document.querySelector('.clock')?.textContent === '00:10', undefined, { timeout: 15000 })
@@ -149,6 +149,7 @@ try {
     assert.ok(translationRequests > 0, '翻译应调用环回 mock 服务')
   }
   const editedText = '検証用の字幕 🎙田中太郎さんと田中'
+  await page.getByRole('button', { name: '工作台', exact: true }).click()
   if (job.segments.length > 0) {
     const row = page.locator('.segment-row').first()
     await row.getByRole('button', { name: '编辑', exact: true }).click()
@@ -213,6 +214,7 @@ try {
   app = await launch()
   const reopened = await app.firstWindow()
   await reopened.getByText('本地服务就绪', { exact: true }).waitFor()
+  await reopened.getByRole('button', { name: '工作台', exact: true }).click()
   await reopened.locator('.job-row').nth(1).waitFor()
   const restored = await reopened.evaluate(() => window.api.listJobs())
   assert.equal(restored.length, 2)

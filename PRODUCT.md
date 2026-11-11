@@ -1,0 +1,43 @@
+# Product
+
+<!-- impeccable:product-schema 1 -->
+
+## Platform
+
+web
+
+## Users
+
+做日语字幕的人，在自己的电脑上把录音或媒体文件转成可编辑字幕。界面跑在 Electron 窗口里。这一节里没有被仓库文案直接写出的受众细节标为推断。推断：主要是单人、本地、桌面操作，不是多人协作。
+
+## Product Purpose
+
+把日语音频做成可编辑、可导出的字幕。转录、翻译、队列、导出和术语表都在本机窗口里完成。成功是用户能新建任务、在工作台改文稿、导出 SRT、VTT、LRC、TXT，并维护术语表。
+
+## Positioning
+
+音频留在本机。Whisper 转录不经过云端模型服务。只有用户选择翻译时，待翻译的字幕文本才会发到本机配置的 DeepSeek API。
+
+## Operating Context
+
+窗口标题是 Whisper工作台。左栏是新建、工作台、术语表，设置钉在栏底。新建页提交录音或批量文件。工作台左边是任务，右边是文稿和导出。术语表和设置留在同一壳里。云端环境可能没有 GPU，也没有本地 Whisper 模型。
+
+## Capabilities and Constraints
+
+已有能力保持不变：录音、拖入或多选媒体、批量提交、模型与模式与词表、任务队列、分段编辑、术语建议、SRT/VTT/LRC/TXT 导出、术语表导入和预览、模型目录与推理设置。这一轮不接入新的后端模型。没有采样率的容器不显示编造的采样率。WAV 和 FLAC 只读文件头。
+
+## Brand Commitments
+
+产品名是 Whisper工作台。界面文案保持现有中文，不改成示意图里的日文或英文。导航密度对齐 Codex / Grok Bot 这一类工作台，但本产品仍是转写工具，不是聊天 Agent。材质是 Glasswork 液态玻璃，只用在左栏、顶部工具条、弹窗和浮层。正文编辑区保持实底。保留一张低调背景图。文字对比度至少 4.5:1。`prefers-reduced-transparency: reduce` 时玻璃退回实色。去掉装饰性大标题和波浪壁纸。
+
+## Evidence on Hand
+
+仓库里的界面文案、`examples/glossary.demo.json`、桌面冒烟脚本。没有用户提供的品牌照片。背景图是按「低调窗边」生成的，不是现场拍摄。
+
+## Product Principles
+
+本地优先。任务页比宣传页重要。控件沿用用户已经认识的按钮、列表和选择器。玻璃只服务于导航和浮层，不铺在正文上。
+
+## Accessibility & Inclusion
+
+正文和标签对比度至少 4.5:1。系统要求降低透明度时，玻璃表面改为实色。焦点环保留。
