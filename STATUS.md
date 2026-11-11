@@ -23,6 +23,7 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 - **7.2 批量导入、转录与自动导出**（P0 核心，已完成）。主进程 `registerAudios`/`pickAudioFiles` 支持多选与多文件拖放，返回逐项校验结果；渲染器显示待处理列表（含无效项原因）。开始前整批选择一次模型、字幕格式与输出目录；每个有效文件按列表顺序调用现有 `/api/jobs` 进入单 worker 队列；每条转录成功后经 `exportJobToDirectory` 把已保存字幕写入输出目录，用主文件名与所选扩展名，同名自动追加序号并排他保护；转录状态与字幕写入状态分开显示，写入失败可就地重新导出，其余任务继续。单文件导入与麦克风录音仍走原路径。
 - **7.3 Windows 安装版与 `model/` 目录**（P1 发布前必验，实现完成）。Windows 构建只保留 NSIS 安装版（移除 portable），`scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明。应用按安装位置定位 `<安装目录>/model`，后端 `JP_WORKBENCH_MODELS_ROOT` 走 `model_discovery.build_manifest` 实时扫描：设置页与任务加载使用同一份发现结果；设置页显示模型目录、发现的模型、逐文件校验、打开目录与重新扫描；空目录/缺件显示放置路径、示例子目录、缺少文件名与获取说明，目录不可访问给出权限提示，未就绪模型不可提交，VAD 缺失单独显示能量回退状态。`docs/migration-model-dir.md` 提供 v0.1.0 迁移指引。
 - **7.4 翻译提示词加固与设置页编辑**（已完成，验收见下）。系统提示词改为固定规则 + 可编辑预设两段组装；字幕原文用 `<subtitles>` 边界包裹并转义，设置页可查看、编辑和恢复默认提示词。
+- **7.5 设置页 DeepSeek Key、模型与思考强度**（已完成，验收见下）。设置页可直接填写 API Key、从 DeepSeek 拉取模型列表并选择思考强度；覆盖项保存在用户数据目录，仅翻译任务注入。
 
 
 ## 0 到 1 阶段历史记录
@@ -201,8 +202,19 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 - 未执行：真实长音频的完整翻译任务端到端（本轮分别用真实 API 客户端脚本和桌面 mock 冒烟验证）；打包安装版内的设置页交互未重复验收。
 - 附带修复：新的玻璃外壳把成功提示浮层固定在页面左上角且不自动消失，导入词表后会盖住「开始录音」并让 `smoke.mjs` 的点击超时。现在成功提示 6 秒后自动消失，错误提示仍保留到用户关闭；`smoke.mjs` 去掉临时关闭提示的绕行后仍全流程通过，说明点击等待跨过了自动消失。
 
+### 7.5 设置页 DeepSeek Key、模型与思考强度
+
+- 设置页新增「DeepSeek 服务」卡片：API Key 输入（只回显掩码，可保存 / 清除）、模型下拉（调 DeepSeek `/models` 拉取，可刷新）、思考强度（关闭 / 低 / 高 / 最高）、恢复默认。
+- 覆盖项保存为 `<userData>/deepseek.json`（权限 0o600）；Key 经 Electron `safeStorage` 加密后只存密文（Windows DPAPI / macOS Keychain），界面只回显掩码，旧版明文 Key 启动时自动迁移，密文解不开时提示重新填写。只在 `mode=translate` 任务里注入 `translation.api_key/model/thinking`；显式值优先于 `.env` 与环境变量，`transcribe` 任务不读取也不发送。后端不持久化 Key，主进程写文件前校验格式并拒绝空白/控制字符。
+- 后端：`DeepSeekConfig.from_settings` 支持 `api_key/model/thinking` 覆盖与 `require_key=False`；思考强度非 `disabled` 时发送 `thinking.type=enabled` + `reasoning_effort`，并省略 `temperature`（思考模式下不生效）。新增 `GET /api/translation/config`、`POST /api/translation/models`，`list_models` 解析 `/models` 的能力字段。
+- 真实 DeepSeek 验收（2026-11-11，`deepseek-flash`）：`/models` 返回 `deepseek-flash`（DeepSeek-V4.1-Flash）与 `deepseek-v4-pro`（DeepSeek-V4-Pro），均支持 `low/high/max`、默认 `high`；`thinking=low` 与 `thinking=high` 各跑一条日语样本，均正常返回并通过 JSON 解析。
+- 开发版界面人工验收（隔离 profile）：把旧版明文 `deepseek.json` 放入 profile 后启动，文件自动变成 `api_key_encrypted` 密文、界面显示掩码，确认迁移生效；模型列表自动显示两个模型；思考强度切「高」并保存后 `deepseek.json` 为 `{"model":"deepseek-flash","thinking":"high"}`；输入测试 Key `sk-test-ui` 保存后状态显示「已保存 sk-…t-ui」、文件含 `api_key`，随后刷新模型列表返回「DeepSeek API Key 无效或已过期。」（无效 Key 明确报错）；点「清除已存 Key」移出 `api_key`；点「恢复默认」后文件被删除并回到 `.env` 配置。
+- 自动化：`test_translation.py` 新增思考强度请求体、配置覆盖、缺 Key 展示、非法强度、`list_models` 解析与鉴权、`/translation/config` 与 `/translation/models` 路由用例；`test_jobs.py` 新增任务覆盖项透传；`desktop.test.ts` 新增 DeepSeek 设置 `safeStorage` 编解码注入、密文落盘、明文迁移标记、解不开/不支持安全存储、掩码与校验用例。
+- 未执行：真实音频的“思考模式”完整任务端到端（本轮用真实 API 客户端与界面/单测分别验证）。
+
 ### 本轮全量检查
 
 - 7.1–7.3 轮次：`pytest` 131 passed；`lint`/`typecheck`/`test`（4 passed）/`build` 通过。
 - 7.4 完成后复跑：`ruff check backend scripts`、`ruff format --check backend scripts` 通过；`pytest -q --basetemp=data/pytest-tmp` 137 passed（1 条 Starlette 弃用警告）；`check_repository.py` 通过；`pnpm --dir apps/desktop typecheck`、`lint`、`test`（8 passed）、`build` 通过。
+- 7.5 完成后复跑：`ruff check`、`ruff format --check`、`check_repository.py` 通过；`pytest -q`（`TMPDIR=data/tmp`）147 passed；桌面 `typecheck`、`lint`、`test`（11 passed）、`build` 通过。
 - `pnpm --dir apps/desktop smoke` 通过（窗口/IPC/本地服务、术语表预览、模拟麦克风录音、四格式导出、退出清理与重启恢复）。本轮合成样本转录为 0 段，环回翻译 mock 分支未被触发；新边界格式的 mock 解析由 `desktop.test.ts` 针对真实请求形状单独覆盖。未执行：需要真实日语语音的 `JP_WORKBENCH_SMOKE_AUDIO` 冒烟（本机无可用样本）。

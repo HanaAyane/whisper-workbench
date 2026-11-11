@@ -3,7 +3,7 @@ import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { app, BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from 'electron'
 import { APP_NAME } from '../shared/api.js'
-import type { Field, Glossary, GlossaryFormat } from '../shared/api.js'
+import type { DeepSeekSettingsInput, Field, Glossary, GlossaryFormat } from '../shared/api.js'
 import { Workbench } from './workbench.js'
 
 const configuredPort = Number(process.env.JP_WORKBENCH_VITE_PORT)
@@ -84,6 +84,9 @@ function installIpc() {
   handle('save-text-file', workbench.saveTextFile.bind(workbench))
   handle('translation-prompt', () => workbench.translationPrompt())
   handle('save-translation-prompt', (prompt: string) => workbench.saveTranslationPrompt(prompt))
+  handle('deepseek-settings', () => workbench.deepSeekSettings())
+  handle('save-deepseek-settings', (input: DeepSeekSettingsInput) => workbench.saveDeepSeekSettings(input))
+  handle('deepseek-models', () => workbench.deepSeekModels())
 }
 
 function createWindow() {

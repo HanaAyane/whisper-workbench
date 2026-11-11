@@ -24,6 +24,9 @@ from app.translation.prompt import compose_system_prompt, render_user_content
 
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-flash"
+# 思考强度：disabled 关闭思考模式；其余值同时打开思考模式并传 reasoning_effort。
+THINKING_LEVELS = ("disabled", "low", "high", "max")
+DEFAULT_THINKING = "disabled"
 MAX_BATCH_CHARS = 6000
 MAX_BATCH_ITEMS = 20
 
@@ -55,16 +58,29 @@ class DeepSeekConfig:
     api_key: str = field(repr=False)
     base_url: str = DEFAULT_BASE_URL
     model: str = DEFAULT_MODEL
+    thinking: str = DEFAULT_THINKING
     timeout_s: float = 60.0
     max_retries: int = 2
 
     @classmethod
-    def from_settings(cls, settings: Settings) -> DeepSeekConfig:
+    def from_settings(
+        cls,
+        settings: Settings,
+        *,
+        api_key: str | None = None,
+        model: str | None = None,
+        thinking: str | None = None,
+        require_key: bool = True,
+    ) -> DeepSeekConfig:
+        """环境变量优先于 .env，显式传入的参数优先于两者。"""
         dotenv = _read_dotenv(settings.project_root / ".env")
-        api_key = os.environ.get("DEEPSEEK_API_KEY") or dotenv.get("DEEPSEEK_API_KEY", "")
-        if not api_key.strip():
+        key = (
+            api_key or os.environ.get("DEEPSEEK_API_KEY") or dotenv.get("DEEPSEEK_API_KEY", "")
+        ).strip()
+        if not key and require_key:
             raise TranslationNotConfiguredError(
-                "未配置 DeepSeek API Key：请在项目 .env 或环境变量 DEEPSEEK_API_KEY 中设置。"
+                "未配置 DeepSeek API Key：请在设置页填写，或在项目 .env 或环境变量 "
+                "DEEPSEEK_API_KEY 中设置。"
             )
         base_url = (
             (
@@ -89,10 +105,32 @@ class DeepSeekConfig:
             raise TranslationNotConfiguredError(
                 "DEEPSEEK_BASE_URL 必须使用 HTTPS 或本机 127.0.0.1，且只能包含服务地址和路径。"
             )
-        model = (
-            os.environ.get("DEEPSEEK_MODEL") or dotenv.get("DEEPSEEK_MODEL") or DEFAULT_MODEL
+        resolved_model = (
+            model
+            or os.environ.get("DEEPSEEK_MODEL")
+            or dotenv.get("DEEPSEEK_MODEL")
+            or DEFAULT_MODEL
         ).strip()
-        return cls(api_key=api_key.strip(), base_url=base_url, model=model)
+        resolved_thinking = (
+            (
+                thinking
+                or os.environ.get("DEEPSEEK_THINKING")
+                or dotenv.get("DEEPSEEK_THINKING")
+                or DEFAULT_THINKING
+            )
+            .strip()
+            .lower()
+        )
+        if not resolved_model:
+            raise TranslationNotConfiguredError("DeepSeek 模型名不能为空。")
+        if resolved_thinking not in THINKING_LEVELS:
+            raise TranslationNotConfiguredError("思考强度只支持 disabled、low、high 或 max。")
+        return cls(
+            api_key=key,
+            base_url=base_url,
+            model=resolved_model,
+            thinking=resolved_thinking,
+        )
 
 
 class DeepSeekTranslator:
@@ -166,12 +204,17 @@ class DeepSeekTranslator:
                     "content": render_user_content(batch),
                 },
             ],
-            "temperature": 0.2,
             "max_tokens": 8192,
-            "thinking": {"type": "disabled"},
             "response_format": {"type": "json_object"},
             "stream": False,
         }
+        if self.config.thinking == "disabled":
+            payload["temperature"] = 0.2
+            payload["thinking"] = {"type": "disabled"}
+        else:
+            # 思考模式下 temperature 不生效，改由 reasoning_effort 控制强度。
+            payload["thinking"] = {"type": "enabled"}
+            payload["reasoning_effort"] = self.config.thinking
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             if check_cancelled is not None:
@@ -236,6 +279,48 @@ class DeepSeekTranslator:
         if set(result) != expected:
             raise TranslationResponseError("DeepSeek 返回的译文数量与输入不一致。")
         return result
+
+
+def list_models(
+    config: DeepSeekConfig, *, transport: httpx.BaseTransport | None = None
+) -> list[dict[str, Any]]:
+    """只读取 /models，用于设置页的模型下拉，不发起对话请求。"""
+    headers = {
+        "Authorization": f"Bearer {config.api_key}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=config.timeout_s, transport=transport, headers=headers) as client:
+        response = client.get(f"{config.base_url}/models")
+    if response.status_code == 401:
+        raise TranslationAuthError("DeepSeek API Key 无效或已过期。")
+    if response.status_code >= 400:
+        raise TranslationResponseError(
+            f"读取 DeepSeek 模型列表失败（HTTP {response.status_code}）。"
+        )
+    try:
+        items = response.json()["data"]
+        if not isinstance(items, list):
+            raise TypeError
+    except (KeyError, TypeError, ValueError) as exc:
+        raise TranslationResponseError("DeepSeek 返回的模型列表格式无效。") from exc
+    models: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
+            continue
+        effort = item.get("effort") if isinstance(item.get("effort"), dict) else {}
+        levels = [level for level in effort.get("supported_levels", []) if isinstance(level, str)]
+        default = effort.get("default_level")
+        models.append(
+            {
+                "id": item["id"],
+                "name": item.get("name") if isinstance(item.get("name"), str) else None,
+                "efforts": levels,
+                "default_effort": default if isinstance(default, str) else None,
+            }
+        )
+    if not models:
+        raise TranslationResponseError("DeepSeek 没有返回可用模型。")
+    return sorted(models, key=lambda model: model["id"])
 
 
 def _batches(texts: list[str]) -> Iterator[list[tuple[int, str]]]:

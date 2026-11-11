@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { FolderOpen, RefreshCw } from 'lucide-react'
-import type { ComputeType, Device, ModelCatalog, TranslationPrompt } from '../../shared/api'
+import type {
+  ComputeType, DeepSeekModel, DeepSeekSettings, DeepSeekSettingsInput, DeepSeekThinking,
+  Device, ModelCatalog, TranslationPrompt,
+} from '../../shared/api'
 import { errorText } from '../format'
 import { useWorkbench } from '../store'
 
@@ -24,10 +27,24 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
   const [draft, setDraft] = useState('')
   const [promptState, setPromptState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [promptError, setPromptError] = useState<string | null>(null)
+  const [deepseek, setDeepseek] = useState<DeepSeekSettings | null>(null)
+  const [keyDraft, setKeyDraft] = useState('')
+  const [modelDraft, setModelDraft] = useState('')
+  const [thinkingDraft, setThinkingDraft] = useState<DeepSeekThinking>('disabled')
+  const [deepseekModels, setDeepseekModels] = useState<DeepSeekModel[]>([])
+  const [deepseekState, setDeepseekState] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const [deepseekError, setDeepseekError] = useState<string | null>(null)
   const discovery = catalog?.source === 'discovery'
   const hints = catalog?.hints
   const modelDirectory = catalog?.model_directory ?? (catalog ? catalog.manifest_path.replace(/[\\/][^\\/]+$/, '') : undefined)
   const sep = hints?.model_directory.includes('\\') ? '\\' : '/'
+  const modelOptions = [...new Set([
+    ...deepseekModels.map((item) => item.id),
+    modelDraft,
+    deepseek?.env.model,
+    'deepseek-flash',
+    'deepseek-v4-pro',
+  ].filter((item): item is string => Boolean(item)))]
 
   async function rescan() {
     setBusy(true)
@@ -53,6 +70,17 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
   }
 
   useEffect(() => {
+    window.api.deepSeekSettings()
+      .then((info) => {
+        setDeepseek(info)
+        setModelDraft(info.model)
+        setThinkingDraft(info.thinking)
+        if (info.api_key_saved || info.env.api_key_configured) void refreshDeepSeekModels()
+      })
+      .catch((error: unknown) => setDeepseekError(errorText(error)))
+  }, [])
+
+  useEffect(() => {
     window.api.translationPrompt()
       .then((info) => {
         setPromptInfo(info)
@@ -60,6 +88,34 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
       })
       .catch((error: unknown) => setPromptError(errorText(error)))
   }, [])
+
+  async function refreshDeepSeekModels() {
+    try {
+      const info = await window.api.deepSeekModels()
+      setDeepseek(info)
+      setDeepseekModels(info.models)
+      setDeepseekError(null)
+    } catch (error) {
+      setDeepseekError(errorText(error))
+    }
+  }
+
+  async function saveDeepSeek(input: DeepSeekSettingsInput) {
+    setDeepseekState('saving')
+    setDeepseekError(null)
+    try {
+      const info = await window.api.saveDeepSeekSettings(input)
+      setDeepseek(info)
+      setKeyDraft('')
+      setModelDraft(info.model)
+      setThinkingDraft(info.thinking)
+      setDeepseekState('saved')
+      if (info.api_key_saved || info.env.api_key_configured) void refreshDeepSeekModels()
+    } catch (error) {
+      setDeepseekError(errorText(error))
+      setDeepseekState('idle')
+    }
+  }
 
   async function savePrompt(value: string) {
     setPromptState('saving')
@@ -138,7 +194,67 @@ export function SettingsPanel({ catalog, onCatalog, onError }: {
       <p className="muted">音频始终留在本机。选择 DeepSeek 翻译时，待翻译字幕文本会发送到本机配置的 DeepSeek API（默认 api.deepseek.com）。API Key 由本地 .env 或环境变量提供。</p>
       <p className="muted">历史任务、原始字幕和已保存编辑存放在本机任务库。</p>
     </section>
-    <section className="settings-card prompt-card">
+    <section className="settings-card wide-card">
+      <div className="pane-heading"><h2>DeepSeek 服务</h2><p>仅翻译模式使用</p></div>
+      <div className="setting-line">
+        <div>
+          <strong>API Key 状态</strong>
+          <p>{deepseek
+            ? deepseek.api_key_saved
+              ? `已保存 ${deepseek.api_key_hint}`
+              : deepseek.env.api_key_configured
+                ? '使用 .env / 环境变量里的 Key'
+                : '未配置：翻译任务需要先填写 Key'
+            : deepseekError ?? '正在读取…'}</p>
+          <p>基础地址 {deepseek?.env.base_url ?? '—'}</p>
+          {deepseek?.api_key_broken && <p className="privacy-warning">已保存的 Key 无法用当前系统账户解密，请重新填写。</p>}
+        </div>
+      </div>
+      <label>API Key
+        <input
+          type="password"
+          value={keyDraft}
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={deepseek?.api_key_saved ? '输入新 Key 以替换已保存的 Key' : 'sk-…'}
+          onChange={(event) => {
+            setKeyDraft(event.target.value)
+            setDeepseekState('idle')
+          }}
+        />
+      </label>
+      <div className="button-row">
+        <button type="button" disabled={deepseekState === 'saving' || !keyDraft.trim()} onClick={() => void saveDeepSeek({ api_key: keyDraft })}>保存 Key</button>
+        <button type="button" disabled={deepseekState === 'saving' || !deepseek?.api_key_saved} onClick={() => void saveDeepSeek({ api_key: null })}>清除已存 Key</button>
+      </div>
+      <div className="form-grid">
+        <label>模型
+          <select value={modelDraft} onChange={(event) => { setModelDraft(event.target.value); setDeepseekState('idle') }}>
+            {modelOptions.map((id) => <option key={id} value={id}>{id}</option>)}
+          </select>
+        </label>
+        <label>思考强度
+          <select value={thinkingDraft} onChange={(event) => { setThinkingDraft(event.target.value as DeepSeekThinking); setDeepseekState('idle') }}>
+            <option value="disabled">关闭（推荐，输出更稳定）</option>
+            <option value="low">低</option>
+            <option value="high">高</option>
+            <option value="max">最高</option>
+          </select>
+        </label>
+      </div>
+      <div className="button-row">
+        <button type="button" disabled={deepseekState === 'saving'} onClick={() => void refreshDeepSeekModels()}>刷新模型列表</button>
+        <button type="button" disabled={deepseekState === 'saving'} onClick={() => void saveDeepSeek({ model: null, thinking: null })}>恢复默认</button>
+        <button type="button" disabled={deepseekState === 'saving'} onClick={() => void saveDeepSeek({ model: modelDraft, thinking: thinkingDraft })}>
+          {deepseekState === 'saving' ? '正在保存' : deepseekState === 'saved' ? '已保存' : '保存模型设置'}
+        </button>
+      </div>
+      {deepseekModels.length > 0 && <p className="muted">可用模型：{deepseekModels.map((item) => item.name ? `${item.id}（${item.name}）` : item.id).join('、')}</p>}
+      {deepseekError && <p className="privacy-warning">{deepseekError}</p>}
+      <p className="muted">Key 由系统安全存储（Windows DPAPI / macOS Keychain）加密后保存，磁盘上只有密文。</p>
+      <p className="muted">打开思考后按 reasoning_effort 发送，temperature 不再生效；翻译默认关闭以保持 JSON 输出稳定。</p>
+    </section>
+    <section className="settings-card wide-card">
       <div className="pane-heading"><h2>翻译提示词</h2><p>仅用于 DeepSeek 翻译模式</p></div>
       <p className="muted">
         这段预设会和后端固定的数据边界规则一起发给 DeepSeek。字幕原文用 &lt;subtitles&gt; 标签包住，

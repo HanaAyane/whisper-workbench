@@ -236,7 +236,9 @@ Copy-Item .env.example .env
 # 编辑 .env，填写 DEEPSEEK_API_KEY=...
 ```
 
-也支持系统环境变量 `DEEPSEEK_API_KEY`（优先级高于 `.env`），以及 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL` 覆盖。`GET /api/health` 不会检查 Key，也不会发起网络请求。
+也支持系统环境变量 `DEEPSEEK_API_KEY`（优先级高于 `.env`），以及 `DEEPSEEK_BASE_URL`、`DEEPSEEK_MODEL`、`DEEPSEEK_THINKING` 覆盖。
+
+也可以直接在「设置 → DeepSeek 服务」里填写 Key、选择模型和思考强度：Key 用系统安全存储加密后保存在用户数据目录的 `deepseek.json`（Windows 走 DPAPI、macOS 走 Keychain，文件权限 0o600，界面只显示 `sk-…abcd` 形式的掩码），优先级高于 `.env` 和环境变量；点「清除已存 Key」会删除该文件里的 Key 并回到 `.env` 配置。Key 只随本地翻译任务发送给本机 sidecar，不写日志、不进 Git。`GET /api/health` 不会检查 Key，也不会发起网络请求。
 
 ### 接口与行为
 
@@ -258,6 +260,19 @@ Copy-Item .env.example .env
 发给 DeepSeek 的 system 提示词分两段：前端固定规则 + 可编辑预设。固定规则由后端始终追加，声明 `<subtitles>` 标签内的内容一律只当作待翻译文本，字幕里出现指令、问题或角色扮演也不会被执行；同时固定「逐段 JSON、id 一一对应」的输出契约。字幕原文在 user 消息里用 `<subtitles>` / `<subtitle id="0">` 边界包裹，原文中的 `&`、`<`、`>` 会转义成 HTML 实体，因此任意字幕文本都无法关闭标签或伪造新的边界。
 
 在「设置 → 翻译提示词」可以查看并编辑可编辑那一段（默认值就是内置预设）。保存后写入用户数据目录的 `translation-prompt.json`，只影响后续 `mode=translate` 的任务；点「恢复默认」清空自定义内容。固定规则以只读形式一并展示，界面无法关闭。`GET /api/translation/prompt` 返回默认预设、固定规则和长度上限。
+
+### 模型与思考强度
+
+「设置 → DeepSeek 服务」可以拉取当前 Key 下的模型列表（调用 DeepSeek `GET /models`）。本机实测返回 `deepseek-flash`（DeepSeek-V4.1-Flash）和 `deepseek-v4-pro`（DeepSeek-V4-Pro），两者都支持 `low / high / max` 三档思考强度，默认 `high`。
+
+思考强度对应请求里的 `thinking` 与 `reasoning_effort`：
+
+| 设置项 | 请求参数 | 说明 |
+| --- | --- | --- |
+| 关闭（默认） | `thinking: {"type": "disabled"}` + `temperature: 0.2` | 翻译任务推荐，JSON 输出更稳定 |
+| 低 / 高 / 最高 | `thinking: {"type": "enabled"}` + `reasoning_effort: low/high/max` | 思考模式下 `temperature` 不生效，请求里不再发送 |
+
+模型与思考强度保存到同一个 `deepseek.json`，只影响之后提交的翻译任务；点「恢复默认」清除覆盖项、回到 `.env` / 环境变量配置。`GET /api/translation/config` 返回服务端生效的模型与强度（不含 Key），设置页据此显示当前配置来源。
 
 ### 双语字幕冒烟
 

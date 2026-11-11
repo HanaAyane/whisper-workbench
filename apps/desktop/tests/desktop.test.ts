@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { writeExportFile, subtitleBaseName, writeSubtitleWithUniqueName } from '../src/main/export-file.ts'
+import {
+  maskApiKey, normalizeApiKey, readDeepSeekSettings, writeDeepSeekSettings,
+} from '../src/main/deepseek-settings.ts'
 import { readMediaInfo } from '../src/main/media-info.ts'
 import {
   MAX_TRANSLATION_PROMPT_CHARS,
@@ -131,4 +134,78 @@ test('环回翻译 mock 能从边界格式解析字幕，并拒绝裸 JSON 旧�
     messages: [{ role: 'system', content: '旧提示词' }, { role: 'user', content: '{"segments":[]}' }],
   })
   assert.throws(() => parseTranslationRequest(legacy), /固定数据边界规则/)
+})
+
+const fakeCodec = {
+  encrypt: async (plain: string) => Buffer.from(plain, 'utf8').toString('base64'),
+  decrypt: async (payload: string) => Buffer.from(payload, 'base64').toString('utf8'),
+}
+
+test('DeepSeek 设置只保存覆盖项，Key 以系统加密密文落盘', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-deepseek-'))
+  const path = join(directory, 'deepseek.json')
+  try {
+    assert.deepEqual(await readDeepSeekSettings(path, fakeCodec), {})
+    const saved = await writeDeepSeekSettings(path, {
+      api_key: 'sk-1234567890abcd', model: 'deepseek-v4-pro', thinking: 'high',
+    }, fakeCodec)
+    assert.deepEqual(saved, {
+      api_key: 'sk-1234567890abcd', model: 'deepseek-v4-pro', thinking: 'high',
+    })
+    assert.equal(maskApiKey(saved.api_key ?? ''), 'sk-…abcd')
+    assert.equal(await maskApiKey('short'), '••••')
+
+    // 文件里只有密文，没有明文 Key。
+    const raw = await readFile(path, 'utf8')
+    assert.ok(raw.includes('api_key_encrypted'))
+    assert.ok(!raw.includes('sk-1234567890abcd'))
+    assert.deepEqual(await readDeepSeekSettings(path, fakeCodec), saved)
+
+    assert.deepEqual(await writeDeepSeekSettings(path, { thinking: null }, fakeCodec), {
+      api_key: 'sk-1234567890abcd', model: 'deepseek-v4-pro',
+    })
+    assert.deepEqual(await writeDeepSeekSettings(path, { api_key: null, model: null }, fakeCodec), {})
+    await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('DeepSeek 设置拒绝非法 Key 与模型名，损坏文件按未设置处理', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-deepseek-'))
+  const path = join(directory, 'deepseek.json')
+  try {
+    await assert.rejects(writeDeepSeekSettings(path, { api_key: 'sk-abc def' }, fakeCodec), /空白/)
+    await assert.rejects(writeDeepSeekSettings(path, { model: 'bad model' }, fakeCodec), /模型名/)
+    await assert.rejects(writeDeepSeekSettings(path, { thinking: 'turbo' as never }, fakeCodec), /思考强度/)
+    assert.equal(normalizeApiKey('  sk-test  '), 'sk-test')
+    await writeFile(path, '{not json', 'utf8')
+    assert.deepEqual(await readDeepSeekSettings(path, fakeCodec), {})
+    await writeFile(path, JSON.stringify({ api_key: 'sk-ok', model: 'deepseek-flash' }), 'utf8')
+    assert.deepEqual(await readDeepSeekSettings(path, fakeCodec), {
+      api_key: 'sk-ok', model: 'deepseek-flash', legacy_api_key: true,
+    })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('无法安全存储或无法解密时不回退到明文', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-deepseek-'))
+  const path = join(directory, 'deepseek.json')
+  try {
+    const unavailable = { encrypt: async () => null, decrypt: async () => null }
+    await assert.rejects(
+      writeDeepSeekSettings(path, { api_key: 'sk-test' }, unavailable),
+      /不支持安全存储/,
+    )
+    await assert.rejects(readFile(path, 'utf8'), { code: 'ENOENT' })
+
+    await writeFile(path, JSON.stringify({ api_key_encrypted: 'ciphertext', model: 'deepseek-flash' }), 'utf8')
+    assert.deepEqual(await readDeepSeekSettings(path, unavailable), {
+      api_key_unreadable: true, model: 'deepseek-flash',
+    })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })

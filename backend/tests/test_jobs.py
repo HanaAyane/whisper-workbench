@@ -323,6 +323,27 @@ class _FakeTranslator:
         return [f"译文{index}" for index in range(len(texts))]
 
 
+def test_translation_config_uses_settings_page_overrides(settings, monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    manager = JobManager(settings)
+    try:
+        request = JobRequest(
+            input_path="sample.wav",
+            asr_model_id="synthetic-test",
+            mode="translate",
+            translation=TranslationOptions(
+                api_key="sk-ui", model="deepseek-v4-pro", thinking="max"
+            ),
+        )
+        config = manager._translation_config(request)
+    finally:
+        manager.close()
+
+    assert config.api_key == "sk-ui"
+    assert config.model == "deepseek-v4-pro"
+    assert config.thinking == "max"
+
+
 def test_translation_pipeline_uses_deepseek_translator(settings, tmp_path, monkeypatch):
     audio = _write_wav(tmp_path / "sample.wav")
 

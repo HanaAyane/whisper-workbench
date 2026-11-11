@@ -9,7 +9,6 @@ import threading
 from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
@@ -437,10 +436,13 @@ class JobManager:
         return []
 
     def _translation_config(self, request: JobRequest) -> DeepSeekConfig:
-        config = DeepSeekConfig.from_settings(self.settings)
-        if request.translation.model and request.translation.model != config.model:
-            config = replace(config, model=request.translation.model)
-        return config
+        # 设置页保存的 Key、模型和思考强度随任务传入，优先于 .env / 环境变量。
+        return DeepSeekConfig.from_settings(
+            self.settings,
+            api_key=request.translation.api_key,
+            model=request.translation.model,
+            thinking=request.translation.thinking,
+        )
 
 
 def _error_message(error: Exception) -> str:

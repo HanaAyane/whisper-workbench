@@ -14,6 +14,7 @@ from app.translation.deepseek import (
     TranslationAuthError,
     TranslationNotConfiguredError,
     TranslationResponseError,
+    list_models,
 )
 from app.translation.prompt import (
     DEFAULT_SYSTEM_PROMPT,
@@ -264,3 +265,139 @@ def test_translation_prompt_route_returns_preset(tmp_path):
     assert payload["system_prompt"] == DEFAULT_SYSTEM_PROMPT
     assert payload["mandatory_rules"] == MANDATORY_RULES
     assert payload["max_chars"] == MAX_SYSTEM_PROMPT_CHARS
+
+
+def test_translate_with_thinking_uses_effort_and_drops_temperature():
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        return _response([{"id": 0, "text": "你好"}])
+
+    translator = DeepSeekTranslator(_config(thinking="low"), transport=httpx.MockTransport(handler))
+    translator.translate_segments(["こんにちは"])
+    translator.close()
+
+    body = json.loads(requests[0].content)
+    assert body["thinking"] == {"type": "enabled"}
+    assert body["reasoning_effort"] == "low"
+    assert "temperature" not in body
+
+
+def test_config_overrides_beat_environment(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-flash")
+
+    config = DeepSeekConfig.from_settings(
+        _settings(tmp_path), api_key=" ui-key ", model="deepseek-v4-pro", thinking="max"
+    )
+
+    assert config.api_key == "ui-key"
+    assert config.model == "deepseek-v4-pro"
+    assert config.thinking == "max"
+
+
+def test_config_allows_missing_key_for_display(tmp_path, monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    config = DeepSeekConfig.from_settings(_settings(tmp_path), require_key=False)
+
+    assert config.api_key == ""
+    assert config.thinking == "disabled"
+
+
+def test_config_rejects_unknown_thinking(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "test-key")
+
+    with pytest.raises(TranslationNotConfiguredError, match="思考强度"):
+        DeepSeekConfig.from_settings(_settings(tmp_path), thinking="turbo")
+
+
+def test_list_models_reads_capabilities():
+    def handler(request):
+        assert str(request.url) == "https://api.deepseek.com/models"
+        assert request.headers["authorization"] == "Bearer test-key"
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    {
+                        "id": "deepseek-flash",
+                        "name": "DeepSeek-V4.1-Flash",
+                        "effort": {
+                            "supported_levels": ["low", "high", "max"],
+                            "default_level": "high",
+                        },
+                    },
+                    {"id": "deepseek-v4-pro"},
+                    {"id": ""},
+                ]
+            },
+        )
+
+    models = list_models(_config(), transport=httpx.MockTransport(handler))
+
+    assert [model["id"] for model in models] == ["deepseek-flash", "deepseek-v4-pro"]
+    assert models[0]["name"] == "DeepSeek-V4.1-Flash"
+    assert models[0]["efforts"] == ["low", "high", "max"]
+    assert models[0]["default_effort"] == "high"
+    assert models[1]["efforts"] == []
+
+
+def test_list_models_maps_auth_error():
+    def handler(request):
+        return httpx.Response(401, json={"error": "invalid key"})
+
+    with pytest.raises(TranslationAuthError, match="API Key"):
+        list_models(_config(), transport=httpx.MockTransport(handler))
+
+
+def test_translation_config_route_reports_env_values(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "env-key")
+    monkeypatch.setenv("DEEPSEEK_MODEL", "deepseek-v4-pro")
+    monkeypatch.setenv("DEEPSEEK_THINKING", "high")
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.get("/api/translation/config", headers={"X-Sidecar-Token": "dev"})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "api_key_configured": True,
+        "model": "deepseek-v4-pro",
+        "thinking": "high",
+        "base_url": "https://api.deepseek.com",
+    }
+
+
+def test_translation_models_route_requires_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.post(
+            "/api/translation/models", json={}, headers={"X-Sidecar-Token": "dev"}
+        )
+
+    assert response.status_code == 400
+    assert "API Key" in response.json()["detail"]
+
+
+def test_translation_models_route_uses_request_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    seen = {}
+
+    def fake_list_models(config):
+        seen["api_key"] = config.api_key
+        return [{"id": "deepseek-flash", "name": None, "efforts": [], "default_effort": None}]
+
+    monkeypatch.setattr("app.api.translation.list_models", fake_list_models)
+
+    with TestClient(create_app(_settings(tmp_path))) as client:
+        response = client.post(
+            "/api/translation/models",
+            json={"api_key": "sk-test"},
+            headers={"X-Sidecar-Token": "dev"},
+        )
+
+    assert response.status_code == 200
+    assert seen["api_key"] == "sk-test"
+    assert response.json()["models"][0]["id"] == "deepseek-flash"

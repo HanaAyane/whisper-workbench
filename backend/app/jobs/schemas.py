@@ -22,9 +22,13 @@ class VadOptions(BaseModel):
 
 class TranslationOptions(BaseModel):
     provider: Literal["deepseek"] = "deepseek"
-    model: str | None = Field(default=None, min_length=1)
+    model: str | None = Field(default=None, min_length=1, max_length=128)
     # 桌面设置页保存的自定义系统提示词；固定边界规则由后端追加，不可覆盖。
     system_prompt: str | None = Field(default=None, max_length=MAX_SYSTEM_PROMPT_CHARS)
+    # 设置页里填写的 Key 只随任务发送，后端不持久化，也不写日志。
+    api_key: str | None = Field(default=None, min_length=1, max_length=512)
+    # 思考强度：disabled 关闭；low/high/max 打开思考模式并传 reasoning_effort。
+    thinking: Literal["disabled", "low", "high", "max"] | None = None
 
 
 class JobRequest(BaseModel):

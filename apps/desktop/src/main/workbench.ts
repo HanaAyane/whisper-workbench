@@ -3,9 +3,10 @@ import { constants } from 'node:fs'
 import { copyFile, lstat, mkdir, open, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { dialog, shell, type BrowserWindow } from 'electron'
+import { dialog, safeStorage, shell, type BrowserWindow } from 'electron'
 import { exportFormats, mediaExtensions } from '../shared/api.js'
 import type {
+  DeepSeekSettings, DeepSeekSettingsInput, DeepSeekThinking,
   DesktopJob, ExportFormat, JobInput, JobOptions, MediaCheck, ModelCatalog, OverwritePolicy, SegmentEdit, SegmentReview,
   TranslationPrompt,
 } from '../shared/api.js'
@@ -13,6 +14,34 @@ import { Sidecar, SidecarResponseError, type SidecarConnection } from './sidecar
 import { writeExportFile, writeSubtitleWithUniqueName } from './export-file.js'
 import { readMediaInfo } from './media-info.js'
 import { readTranslationPrompt, writeTranslationPrompt } from './translation-prompt.js'
+import {
+  maskApiKey,
+  readDeepSeekSettings,
+  writeDeepSeekSettings,
+  type SecretCodec,
+  type StoredDeepSeekSettings,
+} from './deepseek-settings.js'
+
+// Windows 用 DPAPI、macOS 用 Keychain（Electron safeStorage），Key 只以密文落盘。
+const secretCodec: SecretCodec = {
+  async encrypt(plain) {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) return null
+    try {
+      return (await safeStorage.encryptStringAsync(plain)).toString('base64')
+    } catch {
+      return null
+    }
+  },
+  async decrypt(payload) {
+    if (!(await safeStorage.isAsyncEncryptionAvailable())) return null
+    try {
+      const decrypted = await safeStorage.decryptStringAsync(Buffer.from(payload, 'base64'))
+      return decrypted.result
+    } catch {
+      return null
+    }
+  },
+}
 
 const MAX_RECORDING_BYTES = 256 * 1024 * 1024
 const TEMP_RECORDING = /^recording-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.webm$/
@@ -47,11 +76,13 @@ export class Workbench {
   private readonly recordingWrites = new Set<Promise<void>>()
   private readonly modelSelectionPath: string
   private readonly translationPromptPath: string
+  private readonly deepSeekPath: string
   private readonly modelRoot?: string
   private modelsDir?: string
   private outputDir?: string
   private systemPrompt = ''
   private promptDefaults?: { default_prompt: string; mandatory_rules: string; max_chars: number }
+  private deepSeek: StoredDeepSeekSettings = {}
   private submissions = 0
   private switchingModelDirectory = false
   private closing = false
@@ -65,12 +96,22 @@ export class Workbench {
     this.sidecar = new Sidecar(root, packaged, dataDir)
     this.modelSelectionPath = join(dataDir, 'model-directory.json')
     this.translationPromptPath = join(dataDir, 'translation-prompt.json')
+    this.deepSeekPath = join(dataDir, 'deepseek.json')
     // Windows 安装版把模型放在 <安装目录>/model，应用按安装位置定位并自动扫描。
     this.modelRoot = packaged && process.platform === 'win32' ? join(dirname(process.execPath), 'model') : undefined
   }
 
   async initialize(modelTemplate?: string) {
     this.systemPrompt = await readTranslationPrompt(this.translationPromptPath)
+    this.deepSeek = await readDeepSeekSettings(this.deepSeekPath, secretCodec)
+    if (this.deepSeek.legacy_api_key && this.deepSeek.api_key) {
+      // 旧版明文 Key 迁移为系统加密密文；失败时保留原文件并继续使用内存中的 Key。
+      this.deepSeek = await writeDeepSeekSettings(
+        this.deepSeekPath,
+        { api_key: this.deepSeek.api_key },
+        secretCodec,
+      ).catch(() => this.deepSeek)
+    }
     const saved: unknown = await readFile(this.modelSelectionPath, 'utf8')
       .then((content) => JSON.parse(content)).catch(() => null)
     if (typeof saved === 'string' && isAbsolute(saved)) this.modelsDir = saved
@@ -227,6 +268,49 @@ export class Workbench {
       : this.translationPrompt()
   }
 
+  /** 只把非空覆盖项发给本地服务；Key 由后端随任务使用，不落盘、不写日志。 */
+  private translationOptions(): Record<string, string> {
+    const options: Record<string, string> = {}
+    if (this.systemPrompt) options.system_prompt = this.systemPrompt
+    if (this.deepSeek.api_key) options.api_key = this.deepSeek.api_key
+    if (this.deepSeek.model) options.model = this.deepSeek.model
+    if (this.deepSeek.thinking) options.thinking = this.deepSeek.thinking
+    return options
+  }
+
+  private deepSeekView(env: DeepSeekSettings['env'], models: DeepSeekSettings['models'] = []): DeepSeekSettings {
+    return {
+      api_key_saved: Boolean(this.deepSeek.api_key),
+      api_key_hint: this.deepSeek.api_key ? maskApiKey(this.deepSeek.api_key) : '',
+      api_key_broken: Boolean(this.deepSeek.api_key_unreadable),
+      model: this.deepSeek.model ?? env.model,
+      thinking: (this.deepSeek.thinking ?? env.thinking) as DeepSeekThinking,
+      env,
+      models,
+    }
+  }
+
+  /** 设置页：已保存的覆盖项 + 后端 .env / 环境变量里的生效配置。 */
+  async deepSeekSettings(): Promise<DeepSeekSettings> {
+    const env = await (await this.connect()).request<DeepSeekSettings['env']>('/translation/config')
+    return this.deepSeekView(env)
+  }
+
+  async saveDeepSeekSettings(input: DeepSeekSettingsInput): Promise<DeepSeekSettings> {
+    this.deepSeek = await writeDeepSeekSettings(this.deepSeekPath, input, secretCodec)
+    return this.deepSeekSettings()
+  }
+
+  /** 用当前生效的 Key 读取模型列表；失败时抛中文错误交给设置页展示。 */
+  async deepSeekModels(): Promise<DeepSeekSettings> {
+    const env = await (await this.connect()).request<DeepSeekSettings['env']>('/translation/config')
+    const response = await (await this.connect()).request<{ models: DeepSeekSettings['models'] }>(
+      '/translation/models',
+      { method: 'POST', body: this.deepSeek.api_key ? { api_key: this.deepSeek.api_key } : {} },
+    )
+    return this.deepSeekView(env, response.models)
+  }
+
   async createJob(input: JobInput, options: JobOptions) {
     if (this.switchingModelDirectory) throw new Error('正在切换模型目录，请稍后重试。')
     if (!options || !['transcribe', 'translate'].includes(options.mode)) throw new Error('任务模式无效。')
@@ -251,9 +335,7 @@ export class Workbench {
           glossary_id: options.glossary_id,
           device: options.device,
           compute_type: options.compute_type,
-          ...(options.mode === 'translate' && this.systemPrompt
-            ? { translation: { system_prompt: this.systemPrompt } }
-            : {}),
+          ...(options.mode === 'translate' ? { translation: this.translationOptions() } : {}),
         },
       })
       console.info('已提交本地媒体任务。')

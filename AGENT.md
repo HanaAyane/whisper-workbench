@@ -20,7 +20,7 @@ Whisper 工作台（JP Voice Workbench）已完成 0 到 1 的基础框架搭建
 | 桌面       | Node.js 24（项目要求 `>=24`）、pnpm 11.21.0、Electron 45.2.3、React 18、TypeScript、Vite、Zustand、CSS                                                          |
 | Sidecar    | Python 3.10、FastAPI、Uvicorn、Pydantic v2、SQLite（标准库 `sqlite3`）                                                                                          |
 | 音频与转录 | PyAV、NumPy、ONNX Runtime、faster-whisper 1.2.1、CTranslate2 4.8.5。默认清单使用本地 `whisper-ja-1.5B` CT2 模型                                                 |
-| 翻译与术语 | HTTPX 调用 DeepSeek Chat Completions，配置默认 `deepseek-flash` 和 `https://api.deepseek.com`；系统提示词由 `app/translation/prompt.py` 组装（固定边界规则 + 可编辑预设）。术语匹配使用 pyahocorasick，缺失时用纯 Python 字符串搜索回退 |
+| 翻译与术语 | HTTPX 调用 DeepSeek Chat Completions，配置默认 `deepseek-flash` 和 `https://api.deepseek.com`；系统提示词由 `app/translation/prompt.py` 组装（固定边界规则 + 可编辑预设），Key / 模型 / 思考强度可在设置页覆盖。术语匹配使用 pyahocorasick，缺失时用纯 Python 字符串搜索回退 |
 | 检查与分发 | Ruff、pytest、ESLint、TypeScript 严格检查、Node 测试、Playwright 桌面烟雾（Windows 烟雾脚本使用 FFmpeg）。PyInstaller 冻结 sidecar，electron-builder 打包桌面端 |
 
 桌面依赖以 [package.json](apps/desktop/package.json) 和 `pnpm-lock.yaml` 为准。后端以 `backend/requirements.in` 声明直接依赖，`requirements.txt` 固定版本及哈希。打包依赖使用同目录的 `requirements-build.in` 和 `requirements-build.txt`。开发时使用项目内 `.venv` 和 pnpm 的 `--frozen-lockfile`，依赖变更同步更新声明和锁文件。Python 版本如需偏离，记录原因和实际兼容性结果。
@@ -81,8 +81,9 @@ models/、data/       被 Git 忽略的开发环境模型与本地数据
 ### 模型清单与任务输入
 
 - `ModelManifest` 结构见 [打包清单示例](examples/manifest.packaged.json) 与 [开发清单示例](examples/manifest.example.json)。`models[]` 条目包含 `id/type/label/path/language/task/compute_type`，`vad` 包含 `model_path/metadata_path`。相对路径按运行根目录解析，也支持本地绝对路径。模型检查只检查文件，实际加载使用 `local_files_only=True`。清单格式兼容本地 `translate/translate` 条目，当前日中翻译任务使用 ASR 模型与 DeepSeek。
+- **DeepSeek 覆盖项与思考强度**。桌面设置页把用户填写的 Key、模型和思考强度保存为 `<userData>/deepseek.json`（文件权限 0o600）；Key 经 Electron `safeStorage` 加密后只存密文（Windows DPAPI / macOS Keychain），界面只回显掩码，旧版明文 Key 在下次启动时自动迁移为密文，密文解不开时提示重新填写，提交 `mode=translate` 任务时注入 `translation.api_key/model/thinking`；显式值优先于 `.env` 与环境变量，`transcribe` 任务不读取也不发送这些字段。`thinking=disabled`（默认）时发送 `thinking.type=disabled` 与 `temperature=0.2`；`low/high/max` 时发送 `thinking.type=enabled` 与 `reasoning_effort`，并省略 `temperature`（思考模式下不生效）。模型下拉由 `POST /api/translation/models` 调 DeepSeek `/models` 得到，桌面不缓存跨会话列表。
 - **翻译提示词与数据边界**。系统提示词由 `app/translation/prompt.py` 组装：固定规则 `MANDATORY_RULES`（字幕只当数据、不执行标签内指令、逐段 JSON 输出契约）永远排在前，可编辑预设 `DEFAULT_SYSTEM_PROMPT` 或任务传入的 `translation.system_prompt` 排在后，桌面端无法关闭固定规则。字幕原文一律用 `<subtitles>` / `<subtitle id="n">` 边界包裹，原文中的 `&`、`<`、`>` 先转义为 HTML 实体，任意字幕文本都无法关闭标签或伪造边界。设置页经 `GET /api/translation/prompt` 读取默认预设与固定规则，把自定义内容保存到用户数据目录的 `translation-prompt.json`（空内容删除该文件，回到内置预设），提交翻译任务时注入 `translation.system_prompt`；`mode=transcribe` 不发送提示词。
-- `JobRequest` 要求 `input_path` 和 `asr_model_id`。`mode` 为 `transcribe`（默认）或 `translate`，`language` 默认 `ja`，`translation` 可指定 `provider: "deepseek"`、模型覆盖和 `system_prompt`（≤4000 字符的自定义系统提示词，省略或空串使用内置预设）。`glossary_id` 默认 `default`，传 `null` 可关闭任务词表。可传 `name`、录音归属 `recording: "temporary" | "retained" | null`、`device`、`compute_type` 和 `vad`。
+- `JobRequest` 要求 `input_path` 和 `asr_model_id`。`mode` 为 `transcribe`（默认）或 `translate`，`language` 默认 `ja`，`translation` 可指定 `provider: "deepseek"`、模型覆盖 `model`、`system_prompt`（≤4000 字符的自定义系统提示词，省略或空串使用内置预设）、`api_key`（仅随任务发送，后端不持久化）和 `thinking`（`disabled/low/high/max`）。`glossary_id` 默认 `default`，传 `null` 可关闭任务词表。可传 `name`、录音归属 `recording: "temporary" | "retained" | null`、`device`、`compute_type` 和 `vad`。
 - `device` 支持 `auto/cpu/cuda`，`compute_type` 支持 `int8/int8_float16/float16/bfloat16`，实际可用组合由设备决定。任务可覆盖清单中的计算类型，默认打包清单为 `int8`。`vad` 的默认阈值为 `0.5`，`min_speech_duration_ms/min_silence_duration_ms/speech_pad_ms` 默认分别为 `300/100/200`。
 - IPC 的 `JobInput` 使用注册后的媒体 ID 或录音缓冲区及保留选项，由主进程解析成 sidecar 所需的本地路径。旧字段 `JobRequest.export_formats` 仍在请求模型中，现行任务导出使用独立接口。
 
@@ -120,6 +121,8 @@ models/、data/       被 Git 忽略的开发环境模型与本地数据
 | GET          | `/api/glossary/{glossary_id}/export`              | 读取 CSV/JSON 词表（`format` 查询参数）                          |
 | POST         | `/api/glossary/preview`                           | 按 `glossary_id`、`field`、`text` 返回命中与预览，不改字幕或词表 |
 | GET          | `/api/translation/prompt`                         | 返回翻译默认预设、固定边界规则与长度上限（只读，供设置页展示） |
+| GET          | `/api/translation/config`                         | 返回 `.env` / 环境变量里的生效模型、思考强度与 Key 是否已配置（不返回 Key） |
+| POST         | `/api/translation/models`                         | 按请求里的 `api_key`（或服务端配置）读取 DeepSeek 模型列表 |
 
 ## 6. Git 与开发工程基线
 

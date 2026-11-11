@@ -144,6 +144,41 @@ export interface JobOptions {
   compute_type: ComputeType | null
 }
 
+export type DeepSeekThinking = 'disabled' | 'low' | 'high' | 'max'
+
+export interface DeepSeekModel {
+  id: string
+  name: string | null
+  efforts: string[]
+  default_effort: string | null
+}
+
+/** .env / 环境变量里的生效配置；不包含 Key 本身。 */
+export interface DeepSeekEnvConfig {
+  api_key_configured: boolean
+  model: string
+  thinking: DeepSeekThinking
+  base_url: string
+}
+
+export interface DeepSeekSettings {
+  api_key_saved: boolean
+  api_key_hint: string
+  /** 有密文但当前系统账户/机器解不开，需要重新填写。 */
+  api_key_broken: boolean
+  model: string
+  thinking: DeepSeekThinking
+  env: DeepSeekEnvConfig
+  models: DeepSeekModel[]
+}
+
+/** undefined 保持原值，null / 空串清除该覆盖项。 */
+export interface DeepSeekSettingsInput {
+  api_key?: string | null
+  model?: string | null
+  thinking?: DeepSeekThinking | null
+}
+
 /** 设置页展示的翻译提示词：自定义内容为空时使用内置预设。 */
 export interface TranslationPrompt {
   saved: string
@@ -181,4 +216,7 @@ export interface WorkbenchApi {
   saveTextFile(name: string, content: string): Promise<string | null>
   translationPrompt(): Promise<TranslationPrompt>
   saveTranslationPrompt(prompt: string): Promise<TranslationPrompt>
+  deepSeekSettings(): Promise<DeepSeekSettings>
+  saveDeepSeekSettings(input: DeepSeekSettingsInput): Promise<DeepSeekSettings>
+  deepSeekModels(): Promise<DeepSeekSettings>
 }

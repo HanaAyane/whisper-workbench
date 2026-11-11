@@ -262,7 +262,7 @@ button.small { min-height: 28px; padding: 4px 8px; }
 .entry-form, .preview-result { background: var(--quiet); padding: 10px; border-radius: 10px; }
 .entry-actions, .preview-result h3:not(:first-child) { margin-top: 10px; }
 .glossary-preview > button { justify-self: start; }
-.prompt-card { grid-column: 1 / -1; }
+.wide-card { grid-column: 1 / -1; }
 .prompt-label { display: grid; gap: 4px; }
 .prompt-editor { min-height: 120px; font: 13px/1.6 ui-monospace, Consolas, monospace; }
 .prompt-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }

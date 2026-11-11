@@ -48,6 +48,9 @@ const api: WorkbenchApi = {
   saveTextFile: (name, content) => ipcRenderer.invoke('save-text-file', name, content),
   translationPrompt: () => ipcRenderer.invoke('translation-prompt'),
   saveTranslationPrompt: (prompt) => ipcRenderer.invoke('save-translation-prompt', prompt),
+  deepSeekSettings: () => ipcRenderer.invoke('deepseek-settings'),
+  saveDeepSeekSettings: (input) => ipcRenderer.invoke('save-deepseek-settings', input),
+  deepSeekModels: () => ipcRenderer.invoke('deepseek-models'),
 }
 
 contextBridge.exposeInMainWorld('api', api)
