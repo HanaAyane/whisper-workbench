@@ -1,12 +1,34 @@
 # 项目状态
 
-更新日期：2026-11-08（Asia/Shanghai）。
+更新日期：2026-11-10（Asia/Shanghai）。
 
-## 当前范围
+## 当前状态
 
-Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交付。安装版和便携版均包含冻结的本地 sidecar，并在首次启动检查模型；macOS 产出 ad-hoc 签名的 DMG 和 ZIP。按用户要求跳过 Phase 8。
+Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音和媒体导入、本地日语转录、可选 DeepSeek 文本翻译、任务队列与历史、术语建议和人工复核，以及 SRT、VTT、LRC、TXT 导出。原阶段计划中 Phase 0–7 和 Phase 9 的约定范围已完成，Phase 8 按用户要求跳过。
 
-## 阶段进展
+工程约定已整理到新版 [AGENT.md](AGENT.md)，旧版的阶段计划原样保存在 [0 到 1 阶段归档](docs/archive/AGENT-0-to-1.md)。本次更新以文档和归档校验为范围，下文的功能验收沿用原阶段记录。
+
+## 发布与验收边界
+
+- **Windows x64**。`v0.1.0` 基于提交 `35a9de0` 公开发布，提供 NSIS 安装版和便携版。两个包均包含冻结的 sidecar，模型权重需另行准备。打包版已用真实日语样本验证转录与 SRT 导出。[GitHub Release v0.1.0](https://github.com/HanaAyane/whisper-workbench/releases/tag/v0.1.0)
+- **macOS arm64**。已完成本地 DMG/ZIP 构建、ad-hoc 签名和打包版启动烟雾检查。首版公开下载只提供 Windows。macOS 的默认模型端到端转录仍缺少验收记录，构建未做 Developer ID 签名和公证。手动打包工作流已配置，现有验收记录来自本机构建。
+- **翻译与评测**。CLI 曾用真实日语样本跑通 DeepSeek API，桌面复核链路使用环回翻译 mock。翻译质量、专名一致性和系统性性能评测均未形成基准结论。
+- **功能边界**。当前词表支持精确匹配。正则、模糊匹配、`mask`、流式转写、自动保存草稿未纳入范围。批量媒体转录与自动导出、Windows 安装版 `model/` 自动发现已在本轮开发并列出验收情况（见下）。
+
+## 本轮开发（开发清单）
+
+本轮实现 AGENT.md 第 7 节的三项开发清单，P0/P1 均在验证中，验收记录见文末。
+
+- **7.1 可选字幕输出格式**（P0 前置，已完成）。单任务导出保留系统保存对话框与覆盖策略，默认 SRT，支持 SRT、VTT、LRC、TXT。格式列表（`shared/api.ts` 的 `exportFormats`）、后端字幕 writer（`backend/app/export/writers.py` 的 `render_subtitles`）和主进程写入逻辑（`export-file.ts` 的 `writeExportFile`）由单任务与批量共用；批量另加 `writeSubtitleWithUniqueName` 处理同名序号。
+- **7.2 批量导入、转录与自动导出**（P0 核心，已完成）。主进程 `registerAudios`/`pickAudioFiles` 支持多选与多文件拖放，返回逐项校验结果；渲染器显示待处理列表（含无效项原因）。开始前整批选择一次模型、字幕格式与输出目录；每个有效文件按列表顺序调用现有 `/api/jobs` 进入单 worker 队列；每条转录成功后经 `exportJobToDirectory` 把已保存字幕写入输出目录，用主文件名与所选扩展名，同名自动追加序号并排他保护；转录状态与字幕写入状态分开显示，写入失败可就地重新导出，其余任务继续。单文件导入与麦克风录音仍走原路径。
+- **7.3 Windows 安装版与 `model/` 目录**（P1 发布前必验，实现完成）。Windows 构建只保留 NSIS 安装版（移除 portable），`scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明。应用按安装位置定位 `<安装目录>/model`，后端 `JP_WORKBENCH_MODELS_ROOT` 走 `model_discovery.build_manifest` 实时扫描：设置页与任务加载使用同一份发现结果；设置页显示模型目录、发现的模型、逐文件校验、打开目录与重新扫描；空目录/缺件显示放置路径、示例子目录、缺少文件名与获取说明，目录不可访问给出权限提示，未就绪模型不可提交，VAD 缺失单独显示能量回退状态。`docs/migration-model-dir.md` 提供 v0.1.0 迁移指引。
+
+
+## 0 到 1 阶段历史记录
+
+以下记录反映各阶段当时的实现与验收条件。当前行为以维护基线及实现为准。
+
+### 阶段进展
 
 | Phase | 状态 | 测试/验收 | 备注 |
 | --- | --- | --- | --- |
@@ -21,7 +43,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 | 8 测试/评测 | 按用户要求跳过 | 不适用 | Phase 9 只做打包验收 |
 | 9 打包交付 | 完成（9.1–9.7） | Windows x64 安装、启动、卸载、便携版启动、冻结 sidecar 真实转录与 SRT 导出通过；macOS 27.0 arm64 的 DMG/ZIP 构建、ad-hoc 签名、DMG 挂载与打包版冒烟通过 | Windows 包为未签名本地构建；macOS 包为未公证的 ad-hoc 签名构建，手动构建工作流已可用 |
 
-## 环境与兼容性
+### 环境与兼容性
 
 - Git 2.52.0.windows.1；原始基线提交 `8e1f9ea`，稳定分支 `main`，Phase 1 功能分支 `feat/sidecar-foundation`（提交 `a7720c3`），Phase 2 功能分支 `feat/audio-processing`。沿用现有身份，不改全局 Git 配置。
 - 桌面端使用 Node v24.16.0、pnpm 11.21.0、Electron 45.2.3、React 18.3.1、Vite 7.3.7 和 TypeScript 5.9.3。前端依赖已写入 pnpm 锁文件。
@@ -36,7 +58,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - pnpm 11 的 `allowBuilds` 需要显式决定 `electron-winstaller`。已设为 `false`（仅 Windows NSIS 使用的构建脚本），否则 `pnpm install`、`pnpm lint` 等前置依赖检查以 `ERR_PNPM_IGNORED_BUILDS` 退出 1。
 - DeepSeek 翻译复用已有 `httpx 0.28.1`，未新增第三方 SDK；`.env` 由项目内简单解析，未新增 python-dotenv。
 
-## Phase 0 验收记录
+### Phase 0 验收记录
 
 - `.venv/Scripts/python.exe scripts/check_repository.py`：通过；暂存后、提交前再次运行。
 - `.venv/Scripts/python.exe scripts/verify_models.py`：退出码 1，逐项报告两个默认 CT2 模型各 5 个文件及 2 个 VAD 文件缺失，均带完整路径；没有下载或复制模型。此命令的验收要求允许明确报告缺失。
@@ -46,7 +68,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - `uv pip check --python .venv/Scripts/python.exe`：23 个包兼容。安装命令末尾曾尝试 `python -m pip --version`，因 uv 环境默认无 pip 返回 1；依赖安装已成功，后续使用 uv 检查。
 - 已建立 Windows/Linux Python 3.10 CI，实际远端运行尚未发生；本地相同检查通过。
 
-## Phase 1 验收记录
+### Phase 1 验收记录
 
 - Phase 0 已独立提交 `011b7c1`（`chore: complete phase 0 environment and model verification`），开始 Phase 1 前再次阅读状态并确认工作区干净。
 - FastAPI 已实现随机 token、受限 CORS 和 health/models API。显式 `SIDECAR_TOKEN=dev` 仅用于固定示例验收，token 不通过 HTTP 返回。配置支持项目根、模型目录、清单、临时目录、设备和计算类型的环境覆盖。
@@ -57,7 +79,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - Ruff 静态/格式、仓库基础和23个依赖兼容检查通过；没有执行真实 ASR、GPU 或远端 CI。README 已同步安装、启动、token、模型和检查命令。
 - 阶段提交前按明确路径暂存并审阅差异；本地提交通过 `git log --oneline` 查看。
 
-## Phase 2 验收记录
+### Phase 2 验收记录
 
 - 在 `feat/audio-processing` 分支实现 `audio/decode.py`、`audio/vad.py`、`audio/chunks.py`、`audio/tempfiles.py` 与 `scripts/make_demo_assets.py`，仅覆盖 2.1–2.5；`[V1]` waveform peaks 未实现。
 - 解码：PyAV 将输入统一重采样为 16 kHz 单声道 `float32`，时长由实际采样数计算；不支持后缀、缺失文件、无音轨、空采样和解码异常均给出中文错误。
@@ -69,7 +91,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - 本地 ONNX 只读烟雾：以旧项目 `models/whisper_vad.onnx` + metadata 解码 `data/demo/sample.wav` 并推理成功，6 秒音频末段未越界；正弦波被判为非语音，返回空区间，未冒充语音识别结果。
 - 审查：指定的独立审查子代理两次异常/失败无输出，未据此写成已审查；改由 Lead 人工复核代码与差异，未发现阻塞问题。
 
-## Phase 3 验收记录
+### Phase 3 验收记录
 
 - 在 `feat/asr-integration` 分支实现 `asr/model_manager.py`、`asr/whisper_backend.py`、`jobs/schemas.py`、`jobs/manager.py`、`api/jobs.py` 与 `scripts/smoke_transcribe.py`，覆盖 3.1–3.5；3.6 的批量/流式属 `[V1]`，未实现。
 - 本地 `models/manifest.json` 已将 `whisper-ja-1.5B` 指到用户确认的旧项目 `faster_whisper_transwithai/models`（本地绝对路径仅写入被忽略的 manifest，只读引用，不复制权重、不进 Git）；`chickenrice-v2` 目录仍缺失。健康接口因此保持 `models_ok=false`，如实反映并非所有模型齐全。
@@ -87,7 +109,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - Mock DeepSeek 端到端：用本地 HTTP mock 服务跑 30 秒样本，4 段全部生成“日语原文 + 中文译文”双语 SRT；仅验证脚本/客户端/字幕链路，不代表真实 DeepSeek 翻译质量。
 - **真实 DeepSeek 翻译验收**：用户填写本地 `.env` 后，完整 144.9 秒 MP3 真实运行 `scripts/smoke_translate.py`；ASR 17 段 → DeepSeek `deepseek-flash` 单批返回 17 段译文。双语 SRT 共 17 块，每块 4 行（序号/时间/日语/中文），日语 476 字符、中文 371 字符，所有译文非空且无一段与原文相同；首段 `00:00:00,840 → 00:00:09,160`，末段 `00:02:15,280 → 00:02:23,220`。字幕保存在 `data/review/`（Git 忽略），未提交原文/译文；真实翻译质量由用户人工复核。
 
-## Phase 4 验收记录
+### Phase 4 验收记录
 
 - 在 `feat/glossary-engine` 分支实现 `glossary/models.py`、`normalizer.py`、`matcher.py`、`replacer.py`、`io.py`、`store.py`、`api/glossary.py` 与 `scripts/glossary_demo.py`，覆盖 4.1–4.7 首版 exact 范围；`regex`/`fuzzy`/`mask` 明确拒绝，不静默跳过。
 - 归一化：NFKC + 英文 casefold + 片假名折叠平假名；每个归一化字符保留原文索引映射，命中位置按原文 `start/end` 返回。已覆盖全角/半角、大小写、假名与中文/日文混排。
@@ -99,11 +121,11 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - `python scripts/glossary_demo.py --text "田中さんと渋谷で会いました" --glossary data/glossary/demo.json`：命中 2 条（`田中`→`田中太郎` correct、`さん` keep），输出 `田中太郎さんと渋谷で会いました`；`--field translation` 时只命中 `渋谷`→`涩谷`，验证字段隔离。
 - 词表 demo 使用合成 `examples/glossary.demo.json`，复制到被忽略的 `data/glossary/demo.json` 验收；未使用真实用户词表或私人文本。Ruff、仓库基础检查通过。
 
-## 环境故障与处理
+### 环境故障与处理
 
 首次 pytest 在测试 setup 阶段遇到系统临时目录权限问题，8 个用例未执行。改用项目内的 `data/tmp` 作为 TMPDIR 后，8 个测试通过。复现命令见 README。
 
-## Phase 5 验收记录
+### Phase 5 验收记录
 
 - 在 `feat/electron-workbench` 分支实现 Electron + React 工作台。渲染器通过受限 preload IPC 调用本地服务、打开媒体及保存对话框。主进程校验私有 `SIDECAR_READY` 握手，关闭时等待子进程退出。字幕编辑和导出使用主进程中的会话副本，模型原始结果只读。
 - Glasswork 使用 v1.1.0（`2fb84e9`）的 CSS、Chromium SVG 折射和 MIT 许可证，随应用本地打包。应用根据主题选择玻璃材质，降低透明度时切换为实底。按两种主题的桌面截图抽查玻璃表面文字与背景，所测最小对比度为浅色 7.23:1、深色 9.61:1。
@@ -111,7 +133,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - Windows Electron 生产界面烟雾通过。合成正弦信号验证了录音 WebM 解码、任务成功、临时录音清理、拖放和空 SRT。用此前验收的本地日语样本模拟麦克风约 10 秒得到 3 段，并验证保留录音副本。拖放同一完整样本得到 17 段，手工编辑后导出 SRT，模型原文保持不变。验收使用模拟麦克风和受控保存路径，未做物理麦克风人工验收或重跑真实 DeepSeek 请求。
 - 通过桌面 UI 导入合成词表并显示命中及替换预览。Ruff 静态和格式检查、仓库基础检查、后端 pytest 113 项、前端 lint/严格 typecheck/2 项单测/build 通过。CI 已配置 Windows/Linux 上的前端检查，远端运行待实际触发。
 
-## Phase 6 验收记录
+### Phase 6 验收记录
 
 - 本地 SQLite 保存任务状态、字幕与已保存编辑。恢复中断的任务时只更新状态，保留原来的进度和历史顺序。
 - 测试提交三个任务，确认 FIFO，取消正在运行的任务并清理临时录音，随后重启读取三条历史。也覆盖排队取消、意外中断恢复、非本地来源和缺令牌的 WebSocket 拒绝。
@@ -119,7 +141,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - 后端 pytest 115 项通过。Ruff、仓库基础检查、桌面 lint、严格类型检查、2 项前端单测和构建通过。
 - Uvicorn WebSocket 由锁定的 wsproto 1.3.2 提供，Python 环境共 47 个包。
 
-## Phase 7 验收记录
+### Phase 7 验收记录
 
 - 任务生成术语建议，接受或拒绝后立即保存。手改后按当前字幕重新匹配，撤销只回滚仍有效的上次替换。保存接口校验片段版本，原始日语及原始译文始终可查看。旧历史库升级保留原文和已保存编辑。
 - Windows Electron 先用合成音频验收四种导出格式、同名文件保护、退出清理和历史恢复。用此前的本地日语样本模拟麦克风录制约 10 秒生成 3 段，拖放完整样本生成 17 段。环回翻译 mock 校验文本请求，并用于复核译名统一。
@@ -127,7 +149,7 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - 临时录音在任务结束或正常退出时清理，异常退出后在下次启动时清理。显式保留的录音副本在任务详情中可见。设置页说明本地存储范围与启用 DeepSeek 后的文本外发。
 - Python pytest 121 项通过，依赖兼容检查、Ruff、前端 lint、严格类型检查、2 项单测、生产构建和仓库基础检查通过。
 
-## Phase 9 验收记录
+### Phase 9 验收记录
 
 - `pnpm --dir apps/desktop build` 和 `pnpm --dir apps/desktop dist` 成功。Windows x64 产物位于 `apps/desktop/release/`，NSIS 安装包 181.8 MiB，便携版 163.4 MiB，校验值见该目录的 `SHA256SUMS.txt`。
 - NSIS 在隔离目录完成静默安装、启动和卸载。便携 EXE 实际启动后连接冻结 sidecar，显示首启缺失模型提示。三个界面截图来自 Windows 打包版。
@@ -140,12 +162,35 @@ Phase 9 完成 Whisper工作台 0.1.0 的 Windows x64 与 macOS arm64 打包交�
 - `scripts/smoke-package.mjs` 分别对 `release/mac-arm64` 和从 DMG 复制出的 `.app` 运行：打包版启动、首启模型提示、「打开模型目录」IPC、模型目录选择、词表导入与预览、重启后恢复模型目录与历史均通过。
 - 环境差异：`ELECTRON_RUN_AS_NODE=1` 会让 Electron 以 Node 模式启动，冒烟脚本已清理该变量；其余检查在 Windows 与 macOS 上使用同一入口。
 
-## 遗留与下一步
+## 本轮（开发清单）验收记录
 
-- Phase 0–7 和 Phase 9 已完成。Phase 8 按用户要求跳过。
-- Phase 4 的 regex/fuzzy 属 V1、mask 属 STRETCH，均未实现；导入时会明确拒绝，不影响 exact 范围验收。
-- Phase 3 的 DeepSeek 翻译已真实跑通，真实翻译质量与专名一致性仍需按样本继续评估。
-- Phase 2 的 `[V1]` waveform peaks、Phase 3 的批量任务和流式转写、Phase 5 的自动保存草稿仍待开发。
-- macOS 包只构建 arm64，未提供 Intel x64 或 universal 包；只做 ad-hoc 签名，未做 Developer ID 签名与公证，正式对外分发前需补这一步。
-- 手动触发的 `Whisper工作台 macOS 构建` 工作流仍未在 GitHub Actions 远端实际运行；本机已用同一 `pnpm --dir apps/desktop dist` 命令完成构建、签名和运行验收。
-- 未创建远程仓库，未推送、发布或打标签。
+以下为本轮实际执行的命令与结果。未执行的人工或设备相关项单独列出，不记为已通过。
+
+### 7.1 可选字幕输出格式
+
+- 后端 SRT/VTT/LRC/TXT writer 由 `backend/tests/test_export.py` 覆盖，时间戳、VTT 转义和双语顺序通过。
+- 桌面 `writeExportFile` 排他保护与覆盖替换、`subtitleBaseName`、批量 `writeSubtitleWithUniqueName` 由 `apps/desktop/tests/desktop.test.ts` 覆盖（4 项单测）。
+- 开发冒烟 `pnpm --dir apps/desktop smoke` 对同一已保存字幕分别导出四种格式，并校验 UTF-8 内容与时间戳（日志：四格式 UTF-8 导出和覆盖策略）。
+- 未执行：在第三方字幕播放器中人工加载 SRT 与 VTT（本轮无 GUI 人工步骤）。
+
+### 7.2 批量导入、转录与自动导出
+
+- 新增自动化冒烟 `apps/desktop/scripts/smoke-batch.mjs` 通过：一次导入两份主文件名相同的有效媒体与一份损坏文件，按列表顺序入队，成功 2 / 失败 1；预置同名 `clip.srt` 保持原样，自动写出 `clip (1).srt`、`clip (2).srt`；第二批切换 VTT 写出 `clip.vtt`、`clip (1).vtt`，扩展名与格式一致。
+- 单文件导入与麦克风录音仍走原路径：开发冒烟通过（模拟麦克风转录、清理临时录音；拖放单文件四格式导出；重启恢复历史）。
+- 未执行：真实视频与音频混合批次（自动化使用 WAV 合成样本）、单项取消、输出目录不可写、从历史重新导出的人工用例。相关能力已实现，但未单独人工验收。
+
+### 7.3 Windows 安装版与 `model/` 目录
+
+- `pnpm --dir apps/desktop dist` 成功：PyInstaller 重建冻结 sidecar，Electron Builder 只产出 NSIS 安装版 `Whisper工作台-0.1.0-win-x64-setup.exe`；已移除 portable 目标并删除旧 portable 产物。
+- NSIS 静默安装到含中文与空格的 `D:\海南鸡转录\验收 安装目录\Whisper工作台` 成功，安装目录生成 `model\放置模型说明.txt`（中文内容正确，含放置路径、五个必需文件、VAD 与模型获取说明）；卸载后应用文件被清除。
+- 打包冒烟 `scripts/smoke-package.mjs`（win-unpacked，用目录联接注入真实 CT2 模型与 VAD）：启动后 `models()` 返回 `source=discovery`、`model_directory=<安装目录>/model`、模型 `ok=true`、VAD `ok=true`；设置页显示模型目录并可「重新扫描」；重启后仍从安装目录发现模型并保留历史。
+- 真实模型以默认 `int8` 在 CPU 加载成功（8.0 秒）；真实识别未执行（本机无可用日语样本，原样本为上一轮用户临时提供）。
+- 后端 `tests/test_model_discovery.py`（10 例）覆盖完整/缺件模型、空目录、目录不存在、权限异常、VAD 缺失、`ModelManager` 复用发现和 `/api/models` 发现报告。
+- `docs/migration-model-dir.md` 提供 v0.1.0 迁移指引；升级实测未执行（需在真实旧版本用户数据上人工核对）。
+
+### 本轮全量检查
+
+- `.venv/Scripts/python.exe -m ruff check backend scripts`、`ruff format --check backend scripts`：通过。
+- `TMPDIR=data/tmp .venv/Scripts/python.exe -m pytest -q`：131 passed（1 条 Starlette 弃用警告）。
+- `.venv/Scripts/python.exe scripts/check_repository.py`：通过。
+- `pnpm --dir apps/desktop lint`、`typecheck`、`test`（4 passed）、`build`：通过。

@@ -8,13 +8,17 @@ Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper �
 
 ## Windows 安装与首次启动
 
-Windows x64 交付两个 EXE。运行 `Whisper工作台-0.1.0-win-x64-setup.exe` 可安装到所选目录，运行 `Whisper工作台-0.1.0-win-x64-portable.exe` 可直接启动。两种版本均包含 Python sidecar，均使用当前 Windows 用户的 `%APPDATA%\jp-voice-workbench` 保存本地数据。
+Windows x64 只交付 NSIS 安装版 `Whisper工作台-0.1.0-win-x64-setup.exe`。运行后安装到所选目录（支持含空格或中文的路径），包内包含 Python sidecar；本地数据使用当前 Windows 用户的 `%APPDATA%\jp-voice-workbench`。
 
-1. 首次启动后点击「打开模型目录」，在其中放置 `whisper-ja-1.5B` 的本地 CTranslate2 模型文件。工作台会创建默认 `manifest.json`，并检查模型文件是否齐全。
-2. 若模型已在其他位置，在设置中选择含 `manifest.json` 的目录。外部清单可使用模型的绝对路径。设置会在下次启动恢复。
-3. 只有需要日中翻译时，才在用户数据目录下的 `.env` 或环境变量中配置 `DEEPSEEK_API_KEY`，并在任务中选择翻译模式。
+安装时会在安装目录创建 `model/` 目录并写入放置说明。用户把本地 CTranslate2 模型放入 `<安装目录>/model/<模型子目录>/`（每个子目录含 `model.bin`、`config.json`、`tokenizer.json`、`preprocessor_config.json`、`vocabulary.json`），把 VAD 文件 `whisper_vad.onnx`、`whisper_vad_metadata.json` 放在 `model/` 根目录。工作台启动时自动扫描该目录，无需手写 `manifest.json`。
 
-Windows 交付为本地未签名构建，模型权重由用户提供。CPU 可使用默认清单的 `int8`。使用 NVIDIA GPU 时需具备相容的驱动和 CUDA 运行环境。
+1. 启动后在「设置」页查看模型目录、发现的本地 Whisper CT2 模型与逐文件校验结果；放好模型后点「重新扫描」即可选择模型。
+2. 空目录或缺文件时，设置页会显示准确的放置路径、示例子目录、缺少的文件名和模型获取说明；目录不可访问时给出权限提示。未就绪的 ASR 模型不能提交任务，VAD 缺失时单独显示能量阈值回退状态。
+3. 只有需要日中翻译时，才在用户数据目录下的 `.env` 或环境变量配置 `DEEPSEEK_API_KEY`，并在任务中选择翻译模式。
+
+Windows 交付为本地未签名构建，模型权重由用户提供。CPU 使用默认的 `int8`。NVIDIA GPU 需相容驱动和 CUDA 运行环境。
+
+从 `v0.1.0` 升级的用户，按[从 0.1.0 迁移模型](docs/migration-model-dir.md)把原模型文件复制到新的 `model/` 目录。
 
 ## macOS 安装与首次启动
 
@@ -33,7 +37,7 @@ pnpm --dir apps/desktop build
 pnpm --dir apps/desktop dist
 ```
 
-PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。Windows 产物位于 `apps/desktop/release/`。初次构建会获取 Electron 与安装器工具。
+PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。Windows 只生成 NSIS 安装版 `Whisper工作台-0.1.0-win-x64-setup.exe`（不再提供 portable），产物位于 `apps/desktop/release/`；安装时按 `apps/desktop/scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明。初次构建会获取 Electron 与安装器工具。
 
 macOS（Apple Silicon / arm64）在仓库根目录执行同一套命令，Python 路径改为 `.venv/bin/python`：
 
@@ -86,6 +90,8 @@ uv pip compile backend/requirements.in --python .venv/Scripts/python.exe --gener
 
 ## 模型准备
 
+开发版从项目目录读取模型，需要手写清单；**Windows 安装版无需清单**，直接把模型放入 `<安装目录>/model/<模型子目录>/`，由应用自动扫描（见上文）。
+
 将 [manifest.example.json](examples/manifest.example.json) 复制到本地 `models/manifest.json`，修改其中路径。相对路径统一以项目根目录解析，也支持外部绝对路径；本机路径只保存在被忽略的本地清单。不要猜测不明模型的身份，不自动下载模型，不改动旧项目资产。
 
 每个 CT2 模型检查 `model.bin`、`config.json`、`tokenizer.json`、`preprocessor_config.json`、`vocabulary.json`；VAD 检查 ONNX 和 metadata 文件。
@@ -110,6 +116,7 @@ pnpm --dir apps/desktop dev
 首次运行会取得锁定版本的 Electron。开发脚本优先让 Vite 监听 `127.0.0.1:5173`，端口不可用时切换到系统分配的环回端口。Electron 主进程随后启动本地 Python 服务，并通过私有管道取得其环回端口。令牌只在主进程和 Python 服务中使用。也可执行 `pnpm --dir apps/desktop build` 后运行 `pnpm --dir apps/desktop start`，加载构建后的界面。
 
 - 在「新建转录」录制约 10 秒日语或拖入媒体，再点「开始处理」。任务按提交顺序运行，任务栏通过 WebSocket 显示阶段和进度。排队时可立即取消，运行中会在下一个安全检查点停止。
+- 批量处理：在「新建转录」一次性多选或拖入多个音频/视频（可混合格式），列表显示逐项校验结果。先选择模型、字幕格式和输出目录，点「开始批量处理」后按列表顺序逐条入队。每条成功转录后自动把已保存字幕写入输出目录，文件名取媒体主文件名，遇到同名自动追加序号并保护已有文件；转录与字幕写入分别显示状态，写入失败可就地「重新导出」，其余任务继续。
 - 转录完成后在「字幕复核」并排查看模型输出和当前字幕。可以手改并保存、逐条接受或拒绝术语建议，也可以撤销最近一次仍可撤销的替换。纯静音或合成正弦波可能生成空 SRT。
 - 导出时先选择字幕格式和覆盖策略，再通过保存对话框确认目录与文件名。默认保护已有同名文件。
 - 在「术语表」导入 `examples/glossary.demo.json`，用 `田中さんと渋谷で会いました` 验证高亮和替换预览。也可以直接维护词条，或导出 CSV/JSON。
@@ -124,6 +131,12 @@ Windows 桌面烟雾脚本需要 ffmpeg、已配置的 ASR 模型和生产构建
 python scripts/make_demo_assets.py --out data/demo
 pnpm --dir apps/desktop build
 pnpm --dir apps/desktop smoke
+```
+
+批量导入与自动导出的界面冒烟可单独运行，它会用合成 WAV 验证同名文件加序号、保护已有字幕与 SRT/VTT 切换：
+
+```powershell
+node apps/desktop/scripts/smoke-batch.mjs
 ```
 
 ## 单独启动 Sidecar（Phase 1）
