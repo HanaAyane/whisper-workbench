@@ -22,6 +22,13 @@
 
 启动新版本，在「设置」页确认「模型目录」正确、模型显示为「可用」，必要时点「重新扫描」。随后即可在「新建」中选择该模型。旧任务历史和已保存字幕仍在原用户数据目录中。
 
+## 如果没有可复制的旧模型
+
+从 Hugging Face 自行下载后按上文放置，两个仓库与文件要求同 [README 的「日语转录模型下载」](../README.md#日语转录模型下载)：
+
+- **日语转录模型（必需）**：[Jim6789/whisper-ja-1.5B-ct2](https://huggingface.co/Jim6789/whisper-ja-1.5B-ct2)，放入 `model/whisper-ja-1.5B/` 的全部五个文件：`model.bin`、`config.json`、`tokenizer.json`、`preprocessor_config.json`、`vocabulary.json`。
+- **VAD 模型（必需）**：[TransWithAI/Whisper-Vad-EncDec-ASMR-onnx](https://huggingface.co/TransWithAI/Whisper-Vad-EncDec-ASMR-onnx)，下载 `model.onnx` 与 `model_metadata.json`，重命名为 `whisper_vad.onnx`、`whisper_vad_metadata.json` 放在 `model/` 根目录。Hugging Face 访问缓慢时可用镜像 `hf-mirror.com` 替换域名。
+
 ## 注意
 
 - 只复制模型文件，不要移动或删除旧版本目录，先确认新版本可正常转录再考虑清理。

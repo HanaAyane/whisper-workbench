@@ -22,11 +22,20 @@ Windows 交付为本地未签名构建，模型权重由用户提供。CPU 使�
 
 卸载会删除整个安装目录，包括 `model/` 下的模型文件；需要保留模型时请先复制到安装目录之外。
 
+## 日语转录模型下载
+
+安装包不含模型权重，需自行下载后放入安装目录的 `model/`（macOS 版放置方式相同）。日语转录使用下面两个 Hugging Face 仓库：
+
+- **Whisper 日语转录模型（必需）**：[Jim6789/whisper-ja-1.5B-ct2](https://huggingface.co/Jim6789/whisper-ja-1.5B-ct2)（约 6.18 GB，`efwkjn/whisper-ja-1.5B` 的 CTranslate2 转换版）。下载仓库全部文件 `model.bin`、`config.json`、`tokenizer.json`、`preprocessor_config.json`、`vocabulary.json`，放入 `<安装目录>/model/whisper-ja-1.5B/`（子目录名即模型 id，可自定义）。
+- **VAD 语音活动检测模型（必需）**：[TransWithAI/Whisper-Vad-EncDec-ASMR-onnx](https://huggingface.co/TransWithAI/Whisper-Vad-EncDec-ASMR-onnx)。下载 `model.onnx`（约 113.6 MB）与 `model_metadata.json`，分别重命名为 `whisper_vad.onnx` 和 `whisper_vad_metadata.json`，放在 `model/` 根目录。
+
+下载方式任选其一：浏览器打开仓库逐个下载；或 `pip install huggingface_hub` 后执行 `huggingface-cli download Jim6789/whisper-ja-1.5B-ct2 --local-dir whisper-ja-1.5B`；或用 `git clone`（需安装 Git LFS，否则 `model.bin` 只会得到指针文件）。Hugging Face 访问缓慢时，把域名 `huggingface.co` 换成镜像 `hf-mirror.com`，例如 https://hf-mirror.com/Jim6789/whisper-ja-1.5B-ct2 。放好后在「设置」页点「重新扫描」，模型显示「可用」即可选用。
+
 ## macOS 安装与首次启动
 
 Apple Silicon（arm64）交付一个 DMG 和一个 ZIP。打开 `Whisper工作台-0.2.0-mac-arm64.dmg`，把「Whisper工作台」拖入「应用程序」；ZIP 解压后得到同样的 `.app`。本地数据保存在 `~/Library/Application Support/jp-voice-workbench`。
 
-macOS 产物是本地 ad-hoc 签名的未公证应用。从网络下载后首次打开会被 Gatekeeper 拦截，提示「无法验证开发者」。在「应用程序」中右键点击应用选择「打开」，或到「系统设置 → 隐私与安全性」允许一次即可；不要用 `xattr` 或关闭 Gatekeeper 绕过。模型准备、翻译配置与 Windows 相同，模型权重由用户提供，macOS 版只使用 CPU（默认清单的 `int8`）。
+macOS 产物是本地 ad-hoc 签名的未公证应用。从网络下载后首次打开会被 Gatekeeper 拦截，提示「无法验证开发者」。在「应用程序」中右键点击应用选择「打开」，或到「系统设置 → 隐私与安全性」允许一次即可；不要用 `xattr` 或关闭 Gatekeeper 绕过。模型准备与翻译配置同 Windows，下载方式见上文「日语转录模型下载」，模型权重由用户提供，macOS 版只使用 CPU（默认清单的 `int8`）。
 
 ## 打包
 
