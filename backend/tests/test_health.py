@@ -24,7 +24,7 @@ def test_health_without_models(settings):
     with TestClient(create_app(settings)) as client:
         response = client.get("/api/health", headers={"X-Sidecar-Token": "dev"})
     assert response.status_code == 200
-    assert response.json() == {"status": "ok", "version": "0.1.0", "models_ok": False}
+    assert response.json() == {"status": "ok", "version": "0.2.0", "models_ok": False}
 
 
 @pytest.mark.parametrize("path", ["/api/health", "/api/models"])

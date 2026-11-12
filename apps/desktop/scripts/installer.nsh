@@ -12,10 +12,11 @@
   FileWrite $0 "3. VAD 文件 whisper_vad.onnx 与 whisper_vad_metadata.json 放在本目录根。$\r$\n"
   FileWrite $0 "4. 模型权重由用户自行准备，工作台不会自动下载。$\r$\n"
   FileWrite $0 "5. 放好后在应用「设置」页点击「重新扫描」即可识别。$\r$\n"
+  FileWrite $0 "6. 卸载会删除整个安装目录，包括本目录下的模型文件；卸载前请先备份。$\r$\n"
   FileClose $0
 !macroend
 
-; 卸载时保留用户放入的模型文件，不主动删除 model/ 目录。
+; 卸载由 electron-builder 的 uninstaller 处理，默认 RMDir /r 会连同整个安装目录
+; （含 model/ 下的模型文件）一起删除。此处不额外接管清理逻辑，保留空宏。
 !macro customUnInstall
-  ; 有意留空：避免删除用户准备的模型资产。
 !macroend

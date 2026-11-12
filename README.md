@@ -8,7 +8,7 @@ Electron 工作台支持录音、选择或拖入媒体、本地 faster-whisper �
 
 ## Windows 安装与首次启动
 
-Windows x64 只交付 NSIS 安装版 `Whisper工作台-0.1.0-win-x64-setup.exe`。运行后安装到所选目录（支持含空格或中文的路径），包内包含 Python sidecar；本地数据使用当前 Windows 用户的 `%APPDATA%\jp-voice-workbench`。
+Windows x64 只交付 NSIS 安装版 `Whisper工作台-0.2.0-win-x64-setup.exe`。运行后安装到所选目录（支持含空格或中文的路径），包内包含 Python sidecar；本地数据使用当前 Windows 用户的 `%APPDATA%\jp-voice-workbench`。
 
 安装时会在安装目录创建 `model/` 目录并写入放置说明。用户把本地 CTranslate2 模型放入 `<安装目录>/model/<模型子目录>/`（每个子目录含 `model.bin`、`config.json`、`tokenizer.json`、`preprocessor_config.json`、`vocabulary.json`），把 VAD 文件 `whisper_vad.onnx`、`whisper_vad_metadata.json` 放在 `model/` 根目录。工作台启动时自动扫描该目录，无需手写 `manifest.json`。
 
@@ -20,9 +20,11 @@ Windows 交付为本地未签名构建，模型权重由用户提供。CPU 使�
 
 从 `v0.1.0` 升级的用户，按[从 0.1.0 迁移模型](docs/migration-model-dir.md)把原模型文件复制到新的 `model/` 目录。
 
+卸载会删除整个安装目录，包括 `model/` 下的模型文件；需要保留模型时请先复制到安装目录之外。
+
 ## macOS 安装与首次启动
 
-Apple Silicon（arm64）交付一个 DMG 和一个 ZIP。打开 `Whisper工作台-0.1.0-mac-arm64.dmg`，把「Whisper工作台」拖入「应用程序」；ZIP 解压后得到同样的 `.app`。本地数据保存在 `~/Library/Application Support/jp-voice-workbench`。
+Apple Silicon（arm64）交付一个 DMG 和一个 ZIP。打开 `Whisper工作台-0.2.0-mac-arm64.dmg`，把「Whisper工作台」拖入「应用程序」；ZIP 解压后得到同样的 `.app`。本地数据保存在 `~/Library/Application Support/jp-voice-workbench`。
 
 macOS 产物是本地 ad-hoc 签名的未公证应用。从网络下载后首次打开会被 Gatekeeper 拦截，提示「无法验证开发者」。在「应用程序」中右键点击应用选择「打开」，或到「系统设置 → 隐私与安全性」允许一次即可；不要用 `xattr` 或关闭 Gatekeeper 绕过。模型准备、翻译配置与 Windows 相同，模型权重由用户提供，macOS 版只使用 CPU（默认清单的 `int8`）。
 
@@ -37,7 +39,7 @@ pnpm --dir apps/desktop build
 pnpm --dir apps/desktop dist
 ```
 
-PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。Windows 只生成 NSIS 安装版 `Whisper工作台-0.1.0-win-x64-setup.exe`（不再提供 portable），产物位于 `apps/desktop/release/`；安装时按 `apps/desktop/scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明。初次构建会获取 Electron 与安装器工具。
+PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。Windows 只生成 NSIS 安装版 `Whisper工作台-0.2.0-win-x64-setup.exe`（不再提供 portable），产物位于 `apps/desktop/release/`；安装时按 `apps/desktop/scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明。初次构建会获取 Electron 与安装器工具。
 
 macOS（Apple Silicon / arm64）在仓库根目录执行同一套命令，Python 路径改为 `.venv/bin/python`：
 
@@ -47,7 +49,7 @@ pnpm --dir apps/desktop install --frozen-lockfile
 pnpm --dir apps/desktop dist
 ```
 
-产物位于 `apps/desktop/release/`，包括 `Whisper工作台-0.1.0-mac-arm64.dmg`、同名 ZIP 及 blockmap。`scripts/after-pack.cjs` 在打包后做 ad-hoc 签名，使下载到的副本通过完整性校验；配置 Developer ID 证书后 Electron Builder 会用真实证书覆盖该签名。当前未做公证。
+产物位于 `apps/desktop/release/`，包括 `Whisper工作台-0.2.0-mac-arm64.dmg`、同名 ZIP 及 blockmap。`scripts/after-pack.cjs` 在打包后做 ad-hoc 签名，使下载到的副本通过完整性校验；配置 Developer ID 证书后 Electron Builder 会用真实证书覆盖该签名。当前未做公证。
 
 从 GitHub 下载 Electron 或 Electron Builder 二进制过慢时，可对构建命令临时加镜像环境变量（本机实际采用）：
 

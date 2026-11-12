@@ -312,7 +312,11 @@ async function daemon(id) {
     const ready = await page.getByText('本地服务就绪', { exact: true }).isVisible()
     if (title !== 'Whisper工作台') throw new Error(`窗口标题是 ${title}`)
     if (!ready) throw new Error('界面没有显示本地服务就绪。')
-    if (health.status !== 'ok' || health.version !== '0.1.0') throw new Error(`健康检查返回 ${JSON.stringify(health)}`)
+    // 版本以 apps/desktop/package.json 为准，避免每次发版都要改校验脚本。
+    const expectedVersion = (await readJson(join(desktopDir, 'package.json'))).version
+    if (health.status !== 'ok' || health.version !== expectedVersion) {
+      throw new Error(`健康检查返回 ${JSON.stringify(health)}`)
+    }
     if (leaked) throw new Error('渲染进程暴露了令牌或 Node。')
     const report = {
       title,

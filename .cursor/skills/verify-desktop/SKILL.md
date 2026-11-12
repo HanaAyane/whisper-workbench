@@ -48,7 +48,7 @@ node .cursor/skills/verify-desktop/control.mjs launch --evidence /tmp/verify-des
 node .cursor/skills/verify-desktop/control.mjs doctor
 ```
 
-通过条件是 Electron 进程仍是本次 launch 的 pid，标题为 `Whisper工作台`，界面有 `本地服务就绪`，`window.api.health()` 返回 `status=ok` 且 `version=0.1.0`，渲染进程没有 `token` 也没有 `require`。报告写入 `--evidence/doctor.json`。`modelsOk: false` 仍可操作术语表、设置页和录音就绪。它不能用来证明转录、导出或批量落盘。
+通过条件是 Electron 进程仍是本次 launch 的 pid，标题为 `Whisper工作台`，界面有 `本地服务就绪`，`window.api.health()` 返回 `status=ok` 且 `version` 与 `apps/desktop/package.json` 一致，渲染进程没有 `token` 也没有 `require`。报告写入 `--evidence/doctor.json`。`modelsOk: false` 仍可操作术语表、设置页和录音就绪。它不能用来证明转录、导出或批量落盘。
 
 ## Drive
 

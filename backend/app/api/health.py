@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.model_catalog import inspect_manifest
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 router = APIRouter()
 
 
