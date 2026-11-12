@@ -3,7 +3,7 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/HanaAyane/whisper-workbench/releases/tag/v0.2.0"><img src="https://img.shields.io/badge/version-0.2.0-4d42b8?style=flat-square&logo=github&logoColor=white" alt="版本 0.2.0"></a>
+  <a href="https://github.com/HanaAyane/whisper-workbench/releases/tag/v0.2.1"><img src="https://img.shields.io/badge/version-0.2.1-4d42b8?style=flat-square&logo=github&logoColor=white" alt="版本 0.2.1"></a>
   <img src="https://img.shields.io/badge/platform-Windows%20x64%20%7C%20macOS%20arm64-5a6478?style=flat-square" alt="平台：Windows x64、macOS arm64">
   <img src="https://img.shields.io/badge/%E6%9C%AC%E5%9C%B0%E4%BC%98%E5%85%88-%E9%9F%B3%E9%A2%91%E4%B8%8D%E5%87%BA%E6%9C%BA-0e7a5f?style=flat-square" alt="本地优先，音频不出机">
   <img src="https://img.shields.io/badge/Electron%2045%20%7C%20React%2018%20%7C%20faster--whisper%201.2-14182a?style=flat-square" alt="Electron 45 / React 18 / faster-whisper 1.2">
@@ -82,8 +82,8 @@ Whisper工作台是一个跑在 Electron 窗口里的**日语字幕工具**。�
 
 ### 2. 安装
 
-- **Windows x64**：运行 `Whisper工作台-0.2.0-win-x64-setup.exe`，安装到所选目录（支持含空格或中文的路径），包内已含 Python sidecar。本地数据位于 `%APPDATA%\jp-voice-workbench`。
-- **macOS arm64**：打开 `Whisper工作台-0.2.0-mac-arm64.dmg`，把「Whisper工作台」拖入「应用程序」（ZIP 解压得到同样的 `.app`）。本地数据位于 `~/Library/Application Support/jp-voice-workbench`。
+- **Windows x64**：运行 `Whisper工作台-0.2.1-win-x64-setup.exe`，安装到所选目录（支持含空格或中文的路径），包内已含 Python sidecar。本地数据位于 `%APPDATA%\jp-voice-workbench`。
+- **macOS arm64**：打开 `Whisper工作台-0.2.1-mac-arm64.dmg`，把「Whisper工作台」拖入「应用程序」（ZIP 解压得到同样的 `.app`）。本地数据位于 `~/Library/Application Support/jp-voice-workbench`。
 
 Windows 为本地未签名构建，macOS 为 ad-hoc 签名、未公证。macOS 首次打开会被 Gatekeeper 拦截，右键应用选择「打开」，或到「系统设置 → 隐私与安全性」允许一次；不要用 `xattr` 或关闭 Gatekeeper 绕过。
 
@@ -160,7 +160,7 @@ pnpm --dir apps/desktop build
 pnpm --dir apps/desktop dist
 ```
 
-PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。产物位于 `apps/desktop/release/`：Windows 只生成 NSIS 安装版 `Whisper工作台-0.2.0-win-x64-setup.exe`（安装时按 `apps/desktop/scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明）；macOS 生成 `Whisper工作台-0.2.0-mac-arm64.dmg`、同名 ZIP 及 blockmap，`scripts/after-pack.cjs` 在打包后做 ad-hoc 签名，配置 Developer ID 证书后 Electron Builder 会用真实证书覆盖该签名（当前未做公证）。
+PyInstaller 将 sidecar 输出到 `backend/dist/sidecar/`，Electron Builder 将其复制到应用资源目录。产物位于 `apps/desktop/release/`：Windows 只生成 NSIS 安装版 `Whisper工作台-0.2.1-win-x64-setup.exe`（安装时按 `apps/desktop/scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明）；macOS 生成 `Whisper工作台-0.2.1-mac-arm64.dmg`、同名 ZIP 及 blockmap，`scripts/after-pack.cjs` 在打包后做 ad-hoc 签名，配置 Developer ID 证书后 Electron Builder 会用真实证书覆盖该签名（当前未做公证）。
 
 从 GitHub 下载 Electron 或 Electron Builder 二进制过慢时，可加镜像环境变量后重跑：
 
