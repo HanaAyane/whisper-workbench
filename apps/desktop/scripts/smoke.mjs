@@ -206,6 +206,28 @@ try {
   assert.deepEqual(errors, [])
   console.log(`通过：拖放本地音频（${job.segments.length} 段）、四格式 UTF-8 导出和覆盖策略。`)
   assert.ok(await app.evaluate(() => globalThis.jobFrames > 0), '应通过 WebSocket 收到任务状态')
+
+  // 工作台删除历史任务：确认后同步移除列表与后端记录，选中项回退到剩余任务。
+  await page.getByRole('button', { name: '工作台', exact: true }).click()
+  const olderRow = page.locator('.job-row').filter({ hasText: recordedJob.name })
+  await olderRow.locator('.job-select').click()
+  const confirmPrompt = page.evaluate(() => new Promise((resolve) => {
+    window.confirm = (message) => { resolve(message); return true }
+  }))
+  await page.getByRole('button', { name: `删除任务 ${recordedJob.name}`, exact: true }).click()
+  assert.match(String(await confirmPrompt), /删除任务/)
+  await page.getByText('任务已删除。', { exact: true }).waitFor()
+  await page.waitForFunction(() => document.querySelectorAll('.job-row').length === 1)
+  assert.equal(await page.locator('.job-row.selected strong').textContent(), job.name)
+  const remainingJobs = await page.evaluate(() => window.api.listJobs())
+  assert.deepEqual(remainingJobs.map((item) => item.id), [job.id])
+  await assert.rejects(
+    page.evaluate(() => window.api.deleteJob('job-20260101-missing')),
+    /任务不存在/,
+  )
+  assert.deepEqual(errors, [])
+  console.log('通过：工作台确认删除历史任务，列表、选中项与后端记录同步更新。')
+
   const recordings = join(userData, 'tmp-recordings')
   await mkdir(recordings, { recursive: true })
   await writeFile(join(recordings, `recording-${randomUUID()}.webm`), '测试录音占位')
@@ -216,16 +238,17 @@ try {
   const reopened = await app.firstWindow()
   await reopened.getByText('本地服务就绪', { exact: true }).waitFor()
   await reopened.getByRole('button', { name: '工作台', exact: true }).click()
-  await reopened.locator('.job-row').nth(1).waitFor()
+  await reopened.locator('.job-row').first().waitFor()
   const restored = await reopened.evaluate(() => window.api.listJobs())
-  assert.equal(restored.length, 2)
+  assert.equal(restored.length, 1)
   assert.equal(restored[0].id, job.id)
   assert.ok(restored.every((item) => item.state === 'succeeded'))
   if (job.segments.length) {
     assert.equal(restored[0].segments[0].text, editedText)
     assert.ok(restored[0].segments[0].hits.some((hit) => hit.decision === 'rejected'))
   }
-  console.log('通过：桌面端收到 WebSocket 状态，正常退出清理临时录音，重启后恢复历史任务和字幕。')
+  assert.deepEqual(errors, [])
+  console.log('通过：桌面端收到 WebSocket 状态，正常退出清理临时录音，重启后恢复历史任务和字幕，已删除任务不再出现。')
 } finally {
   if (app) await app.close()
   if (mock.listening) await new Promise((done) => mock.close(done))

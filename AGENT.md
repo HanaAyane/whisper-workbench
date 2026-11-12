@@ -41,7 +41,7 @@ React Renderer ⇄ preload contextBridge（window.api）⇄ Electron Main
 - **Renderer → Main**。渲染器处理录音、拖放、任务进度和字幕 UI，通过 `window.api` 调用受限 IPC。窗口启用 `contextIsolation` 和 `sandbox`，关闭 `nodeIntegration`。主进程验证 IPC 来源，管理文件对话框、媒体路径、临时录音、sidecar 和导出落盘。
 - **Main → Sidecar**。桌面模式下主进程生成随机会话令牌，子进程监听 `127.0.0.1` 的系统分配端口，通过私有管道交付就绪信息。HTTP 使用 `X-Sidecar-Token`，WebSocket 可用同一请求头或 `jp-workbench, <token>` 子协议鉴权。令牌只在主进程与 sidecar 间传递。手工启动见 [README.md](README.md)。
 - **Sidecar 数据流**。PyAV 解码为 16 kHz 单声道 `float32` → ONNX VAD（不可用时按能量阈值回退）→ 按最长 30 秒切块 → 本地 ASR → 按需翻译 → 生成分字段术语建议 → 保存任务结果与词表快照 → 人工复核 → 导出已保存字幕。
-- **持久化与恢复**。一个数据库由一个 sidecar 使用。重启时历史任务和已保存字幕可恢复，原先排队或运行的任务标记为中断（`cancelled`），不自动重跑。旧历史缺少复核快照时，保留已保存字幕和原始输出，并用可读取的词表重新生成建议。录音默认临时保存并清理，只有用户选择保留时才留在 `recordings/`。导入的媒体原文件由用户管理。
+- **持久化与恢复**。一个数据库由一个 sidecar 使用。重启时历史任务和已保存字幕可恢复，原先排队或运行的任务标记为中断（`cancelled`），不自动重跑。旧历史缺少复核快照时，保留已保存字幕和原始输出，并用可读取的词表重新生成建议。工作台可删除已结束任务的历史记录，删除只移除任务快照和词表快照，不删除导入的媒体文件或保留的录音副本。录音默认临时保存并清理，只有用户选择保留时才留在 `recordings/`。导入的媒体原文件由用户管理。
 - **开发和打包**。开发版从项目目录读取默认模型与 `.env`，桌面任务数据库位于 Electron 用户数据目录。独立启动 sidecar 时默认使用 `data/jobs.sqlite3`。打包版以用户数据目录为运行根目录，并从资源目录加载冻结的 sidecar 和默认模型清单模板。详见 [架构说明](docs/architecture.md)。
 
 ## 4. 目录结构
@@ -95,6 +95,7 @@ models/、data/       被 Git 忽略的开发环境模型与本地数据
 | `Segment`                       | `id` 是任务内整数，`start/end` 为媒体时间轴上的整数毫秒。`raw_text/raw_translation` 保留首次输出，`text/translation` 是可编辑副本。纯转录时两种译文字段都为 `null`。`hits` 记录建议与复核状态，`revision` 是独立的片段版本                                                                                                                                                     |
 | `SegmentEdit` / `SegmentReview` | 保存传 `text`、`translation` 和当前片段 `revision`。接受或拒绝传 `action`、`revision` 和 `hit: {entry_id, field, start, end}`，撤销传 `action: "undo"` 和 `revision`。版本冲突返回 `409`。受影响字段重新匹配，撤销作用于该片段最近一次仍有效的已接受替换                                                                                                                       |
 | `ExportRequest`                 | 对成功任务提交 `{format}`（`srt/vtt/lrc/txt`）。Sidecar 返回已保存字幕的 UTF-8 文本，双语按原文、译文顺序写出。主进程在用户选择的位置落盘，默认保护同名文件，明确允许覆盖时通过同目录临时文件替换                                                                                                                                                                              |
+| 历史任务删除                    | 对 `succeeded/failed/cancelled` 任务调用 `DELETE /api/jobs/{job_id}`（`204`），删除任务快照与词表快照；`queued/running` 返回 `409`，未知任务返回 `404`。桌面端仅在任务结束后显示删除按钮，确认后主进程通知渲染器移除列表项，选中项回退到剩余任务中最近创建的一条。只删除本地任务记录，不删除导入的媒体文件或用户选择保留的录音副本                                                       |
 
 ### 词表和命中
 
@@ -110,6 +111,7 @@ models/、data/       被 Git 忽略的开发环境模型与本地数据
 | GET          | `/api/health`、`/api/models`                      | 健康状态与本地清单校验                                           |
 | GET / POST   | `/api/jobs`                                       | 任务列表 / 创建任务（`202`）                                     |
 | GET          | `/api/jobs/{job_id}`                              | 查询任务快照                                                     |
+| DELETE       | `/api/jobs/{job_id}`                              | 删除已结束任务历史（进行中任务返回 `409`）                       |
 | POST         | `/api/jobs/{job_id}/cancel`                       | 请求取消                                                         |
 | WS           | `/ws/jobs/{job_id}`                               | 推送任务快照，终态后关闭                                         |
 | PATCH        | `/api/jobs/{job_id}/segments/{segment_id}`        | 保存当前编辑文本                                                 |

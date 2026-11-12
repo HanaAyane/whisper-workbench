@@ -365,6 +365,14 @@ export class Workbench {
     this.publish(job)
   }
 
+  /** 删除已结束任务的历史记录；用户媒体文件和保留的录音副本留在磁盘上。 */
+  async deleteJob(id: string) {
+    await (await this.connect()).request<void>(jobPath(id), { method: 'DELETE' })
+    this.watching.delete(id)
+    const window = this.getWindow()
+    if (window && !window.isDestroyed()) window.webContents.send('job-removed', id)
+  }
+
   async updateSegment(id: string, segmentId: number, edit: SegmentEdit) {
     const job = await (await this.connect()).request<DesktopJob>(segmentPath(id, segmentId), {
       method: 'PATCH', body: edit,

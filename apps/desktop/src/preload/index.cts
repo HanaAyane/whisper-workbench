@@ -24,6 +24,7 @@ const api: WorkbenchApi = {
   createJob: (input, options) => ipcRenderer.invoke('create-job', input, options),
   listJobs: () => ipcRenderer.invoke('list-jobs'),
   cancelJob: (id) => ipcRenderer.invoke('cancel-job', id),
+  deleteJob: (id) => ipcRenderer.invoke('delete-job', id),
   updateSegment: (id, segmentId, edit) => ipcRenderer.invoke('update-segment', id, segmentId, edit),
   reviewSegment: (id, segmentId, decision) => ipcRenderer.invoke('review-segment', id, segmentId, decision),
   exportJob: (id, format, policy) => ipcRenderer.invoke('export-job', id, format, policy),
@@ -33,6 +34,11 @@ const api: WorkbenchApi = {
     const listener = (_event: Electron.IpcRendererEvent, job: DesktopJob) => callback(job)
     ipcRenderer.on('job-update', listener)
     return () => { ipcRenderer.removeListener('job-update', listener) }
+  },
+  onJobRemoved: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, jobId: string) => callback(jobId)
+    ipcRenderer.on('job-removed', listener)
+    return () => { ipcRenderer.removeListener('job-removed', listener) }
   },
   pickModelDirectory: () => ipcRenderer.invoke('pick-model-directory'),
   openModelDirectory: () => ipcRenderer.invoke('open-model-directory'),

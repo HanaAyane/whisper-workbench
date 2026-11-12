@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ComputeType, DesktopJob, Device } from '../shared/api'
+import { selectionAfterRemoval } from './format'
 
 interface WorkbenchState {
   theme: 'light' | 'dark'
@@ -9,6 +10,7 @@ interface WorkbenchState {
   selectJob(id: string): void
   mergeJobs(jobs: DesktopJob[]): void
   putJob(job: DesktopJob, select?: boolean): void
+  removeJob(jobId: string): void
   device: Device | null
   computeType: ComputeType | null
   setDevice(device: Device | null): void
@@ -34,6 +36,12 @@ export const useWorkbench = create<WorkbenchState>((set) => ({
     jobs: { ...state.jobs, [job.id]: latest(state.jobs[job.id], job) },
     selectedJob: select ? job.id : state.selectedJob,
   })),
+  removeJob: (jobId) => set((state) => {
+    if (!state.jobs[jobId]) return state
+    const jobs = { ...state.jobs }
+    delete jobs[jobId]
+    return { jobs, selectedJob: selectionAfterRemoval(jobs, state.selectedJob, jobId) }
+  }),
   device: null,
   computeType: null,
   setDevice: (device) => set({ device }),

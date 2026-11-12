@@ -43,6 +43,14 @@ export function activeJob(job: DesktopJob) {
   return job.state === 'queued' || job.state === 'running'
 }
 
+/** 删除任务后维护当前选中项：被删任务仍选中时回退到剩余任务中最近创建的一条。 */
+export function selectionAfterRemoval(
+  remaining: Record<string, DesktopJob>, selected: string | null, removed: string,
+) {
+  if (selected !== removed) return selected
+  return Object.values(remaining).sort((a, b) => b.created_at.localeCompare(a.created_at))[0]?.id ?? null
+}
+
 export function highlightedParts<Hit extends TermHit>(text: string, hits: Hit[]) {
   const letters = Array.from(text)
   let cursor = 0

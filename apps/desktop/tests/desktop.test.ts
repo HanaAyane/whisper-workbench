@@ -13,9 +13,9 @@ import {
   readTranslationPrompt,
   writeTranslationPrompt,
 } from '../src/main/translation-prompt.ts'
-import { byteLabel, highlightedParts, sampleLabel } from '../src/renderer/format.ts'
+import { byteLabel, highlightedParts, sampleLabel, selectionAfterRemoval } from '../src/renderer/format.ts'
 import { parseTranslationRequest } from '../scripts/smoke-payload.mjs'
-import type { TermHit } from '../src/shared/api.ts'
+import type { DesktopJob, TermHit } from '../src/shared/api.ts'
 
 test('字幕导出保护同名文件，并能按明确策略替换 UTF-8 文件', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'jp-workbench-export-'))
@@ -208,4 +208,33 @@ test('无法安全存储或无法解密时不回退到明文', async () => {
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
+})
+
+const desktopJob = (id: string, createdAt: string): DesktopJob => ({
+  id,
+  state: 'succeeded',
+  stage: null,
+  progress: 1,
+  message: '处理完成',
+  error: null,
+  segments: [],
+  name: id,
+  mode: 'transcribe',
+  recorded_path: null,
+  created_at: createdAt,
+  revision: 1,
+  cancel_requested: false,
+})
+
+test('删除任务后选中项回退到剩余任务中最近创建的一条', () => {
+  const jobs = {
+    first: desktopJob('first', '2026-01-01T09:00:00+08:00'),
+    latest: desktopJob('latest', '2026-03-01T09:00:00+08:00'),
+    middle: desktopJob('middle', '2026-02-01T09:00:00+08:00'),
+  }
+  const remaining = { first: jobs.first, middle: jobs.middle }
+  assert.equal(selectionAfterRemoval(remaining, 'latest', 'latest'), 'middle')
+  assert.equal(selectionAfterRemoval(remaining, 'first', 'latest'), 'first')
+  assert.equal(selectionAfterRemoval(remaining, null, 'latest'), null)
+  assert.equal(selectionAfterRemoval({}, 'latest', 'latest'), null)
 })

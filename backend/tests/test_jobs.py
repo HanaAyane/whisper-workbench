@@ -1,5 +1,6 @@
 """Phase 3 任务状态机与 /api/jobs 接口测试（使用假 runner，不加载模型）。"""
 
+import sqlite3
 import time
 import wave
 from dataclasses import replace
@@ -285,7 +286,62 @@ def test_unknown_job_returns_404(settings):
     application = create_app(settings, job_runner=_segments)
     with TestClient(application) as client:
         response = client.get("/api/jobs/job-20260101-001", headers=HEADERS)
-    assert response.status_code == 404
+        deleted = client.delete("/api/jobs/job-20260101-001", headers=HEADERS)
+    assert response.status_code == deleted.status_code == 404
+
+
+def test_delete_terminal_job_removes_history_records(settings, tmp_path):
+    audio = _write_wav(tmp_path / "sample.wav")
+    database = settings.jobs_path or settings.project_root / "data" / "jobs.sqlite3"
+    with TestClient(create_app(settings, job_runner=_segments)) as client:
+        job_id = client.post("/api/jobs", json=_payload(audio), headers=HEADERS).json()["id"]
+        assert _wait(client, job_id)["state"] == "succeeded"
+        response = client.delete(f"/api/jobs/{job_id}", headers=HEADERS)
+        assert response.status_code == 204
+        assert response.content == b""
+        assert client.get(f"/api/jobs/{job_id}", headers=HEADERS).status_code == 404
+        assert client.get("/api/jobs", headers=HEADERS).json() == []
+        assert client.delete(f"/api/jobs/{job_id}", headers=HEADERS).status_code == 404
+    connection = sqlite3.connect(database)
+    try:
+        assert (
+            connection.execute("SELECT COUNT(*) FROM jobs WHERE id = ?", (job_id,)).fetchone()[0]
+            == 0
+        )
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM job_glossaries WHERE id = ?", (job_id,)
+            ).fetchone()[0]
+            == 0
+        )
+    finally:
+        connection.close()
+
+
+def test_delete_active_job_is_rejected(settings, tmp_path):
+    audio = _write_wav(tmp_path / "sample.wav")
+    started = Event()
+    release = Event()
+
+    def blocking(request, report):
+        started.set()
+        assert release.wait(5)
+        return _segments(request, report)
+
+    with TestClient(create_app(settings, job_runner=blocking)) as client:
+        running = client.post("/api/jobs", json=_payload(audio), headers=HEADERS).json()["id"]
+        try:
+            assert started.wait(2)
+            queued = client.post("/api/jobs", json=_payload(audio), headers=HEADERS).json()["id"]
+            for job_id in (running, queued):
+                response = client.delete(f"/api/jobs/{job_id}", headers=HEADERS)
+                assert response.status_code == 409
+                assert "取消" in response.json()["detail"]
+                assert client.get(f"/api/jobs/{job_id}", headers=HEADERS).status_code == 200
+        finally:
+            release.set()
+            assert _wait(client, running)["state"] == "succeeded"
+            assert _wait(client, queued)["state"] == "succeeded"
 
 
 def test_jobs_endpoints_require_token(settings, tmp_path):
@@ -294,7 +350,8 @@ def test_jobs_endpoints_require_token(settings, tmp_path):
     with TestClient(application) as client:
         post = client.post("/api/jobs", json=_payload(audio))
         get = client.get("/api/jobs/anything")
-    assert post.status_code == get.status_code == 401
+        deleted = client.delete("/api/jobs/anything")
+    assert post.status_code == get.status_code == deleted.status_code == 401
 
 
 def test_cors_preflight_allows_post(settings):

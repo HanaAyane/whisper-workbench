@@ -30,6 +30,7 @@ export function App() {
   const toggleTheme = useWorkbench((state) => state.toggleTheme)
   const job = useWorkbench((state) => state.selectedJob ? state.jobs[state.selectedJob] : undefined)
   const putJob = useWorkbench((state) => state.putJob)
+  const removeJob = useWorkbench((state) => state.removeJob)
   const mergeJobs = useWorkbench((state) => state.mergeJobs)
 
   const onError = useCallback((message: string) => setNotice({ kind: 'error', message }), [])
@@ -50,10 +51,11 @@ export function App() {
   }, [mergeJobs, onError, refreshGlossaries])
 
   useEffect(() => {
-    const unsubscribe = window.api.onJobUpdate(putJob)
+    const unsubscribeUpdate = window.api.onJobUpdate(putJob)
+    const unsubscribeRemove = window.api.onJobRemoved(removeJob)
     void refresh()
-    return unsubscribe
-  }, [putJob, refresh])
+    return () => { unsubscribeUpdate(); unsubscribeRemove() }
+  }, [putJob, removeJob, refresh])
 
   useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
 
@@ -102,7 +104,7 @@ export function App() {
         <div className="page-sheet" hidden={page !== 'workbench'}>
           {showModelWarning && page === 'workbench' && <ModelWarning catalog={catalog} onError={onError} onSettings={() => setPage('settings')} />}
           <div className="bench">
-            <JobList onError={onError} />
+            <JobList onError={onError} onSaved={onSaved} />
             <div className="editor-pane">
               <TranscriptEditor job={job} onError={onError} />
               <ExportBar job={job} onError={onError} onSaved={onSaved} />

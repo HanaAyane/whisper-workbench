@@ -14,7 +14,7 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 - **Windows x64**。`v0.1.0` 基于提交 `35a9de0` 公开发布，提供 NSIS 安装版和便携版。两个包均包含冻结的 sidecar，模型权重需另行准备。打包版已用真实日语样本验证转录与 SRT 导出。[GitHub Release v0.1.0](https://github.com/HanaAyane/whisper-workbench/releases/tag/v0.1.0)
 - **macOS arm64**。已完成本地 DMG/ZIP 构建、ad-hoc 签名和打包版启动烟雾检查。首版公开下载只提供 Windows。macOS 的默认模型端到端转录仍缺少验收记录，构建未做 Developer ID 签名和公证。手动打包工作流已配置，现有验收记录来自本机构建。
 - **翻译与评测**。CLI 曾用真实日语样本跑通 DeepSeek API，桌面复核链路使用环回翻译 mock。翻译质量、专名一致性和系统性性能评测均未形成基准结论。
-- **功能边界**。当前词表支持精确匹配。正则、模糊匹配、`mask`、流式转写、自动保存草稿未纳入范围。批量媒体转录与自动导出、Windows 安装版 `model/` 自动发现已在本轮开发并列出验收情况（见下）。
+- **功能边界**。当前词表支持精确匹配。正则、模糊匹配、`mask`、流式转写、自动保存草稿未纳入范围。批量媒体转录与自动导出、Windows 安装版 `model/` 自动发现已在本轮开发并列出验收情况（见下）；工作台删除历史任务已实现并验收（见 7.7）。
 
 ## 本轮开发（开发清单）
 
@@ -25,6 +25,7 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 - **7.3 Windows 安装版与 `model/` 目录**（P1 发布前必验，实现完成）。Windows 构建只保留 NSIS 安装版（移除 portable），`scripts/installer.nsh` 在安装目录创建 `model/` 并写入放置说明。应用按安装位置定位 `<安装目录>/model`，后端 `JP_WORKBENCH_MODELS_ROOT` 走 `model_discovery.build_manifest` 实时扫描：设置页与任务加载使用同一份发现结果；设置页显示模型目录、发现的模型、逐文件校验、打开目录与重新扫描；空目录/缺件显示放置路径、示例子目录、缺少文件名与获取说明，目录不可访问给出权限提示，未就绪模型不可提交，VAD 缺失单独显示能量回退状态。`docs/migration-model-dir.md` 提供 v0.1.0 迁移指引。
 - **7.4 翻译提示词加固与设置页编辑**（已完成，验收见下）。系统提示词改为固定规则 + 可编辑预设两段组装；字幕原文用 `<subtitles>` 边界包裹并转义，设置页可查看、编辑和恢复默认提示词。
 - **7.5 设置页 DeepSeek Key、模型与思考强度**（已完成，验收见下）。设置页可直接填写 API Key、从 DeepSeek 拉取模型列表并选择思考强度；覆盖项保存在用户数据目录，仅翻译任务注入。
+- **7.7 工作台删除历史任务**（已完成，验收见下）。任务列表对已结束任务提供删除按钮，确认后经 `DELETE /api/jobs/{job_id}` 移除任务快照与词表快照；进行中的任务返回 `409` 需先取消。删除只作用于本地任务记录，不删除导入的媒体文件和用户保留的录音副本；选中项回退到剩余任务中最近创建的一条。
 
 
 ## 0 到 1 阶段历史记录
@@ -228,3 +229,12 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 - 冻结 sidecar：直接启动 `release/win-unpacked/resources/sidecar/jp-sidecar.exe`，`GET /api/health` 返回 `{"status":"ok","version":"0.2.0","models_ok":false}`。
 - 发布前自动化：`check_repository.py`、`ruff check`、`ruff format --check` 通过；`pytest -q`（`TMPDIR=data/tmp`）147 passed；桌面端 `lint`、`typecheck`、`test`（11 passed）通过。提交 `ca0e6a8` 推送到 `main` 与标签 `v0.2.0` 后，`项目检查` 工作流两次运行均通过。
 - 未执行：最终安装包内的真实模型转录与字幕导出（本机没有模型权重，真实日语样本为上一轮用户临时提供）；macOS 构建与发布（本次只发 Windows）；卸载保留模型（当前实现随安装目录一起删除，已在 README、安装说明和 Release 说明中提示）。
+
+### 7.7 工作台删除历史任务
+
+- 后端新增 `DELETE /api/jobs/{job_id}`：`JobStore.delete` 在同一事务删除 `jobs` 与 `job_glossaries` 快照，`JobManager.delete_job` 在锁内校验任务已结束。`succeeded/failed/cancelled` 返回 `204`，`queued/running` 返回 `409`（提示先取消），未知任务返回 `404`；鉴权沿用 sidecar 令牌中间件。
+- 桌面端新增 `deleteJob` IPC 与主进程实现：删除成功后向渲染器发送 `job-removed`，Zustand store 移除任务并在被删任务仍选中时回退到剩余任务中最近创建的一条。任务列表只对已结束任务显示删除按钮，`window.confirm` 说明会移除任务记录和已保存字幕、但不删除本地媒体与保留的录音副本；成功提示「任务已删除。」。
+- 自动化：`backend/tests/test_jobs.py` 新增删除终态任务（返回 `204`、查询 `404`、两张表记录清空、重复删除 `404`）与删除运行/排队任务（`409`、任务保留并在放行后完成）用例，鉴权用例补充 `DELETE`；`apps/desktop/tests/desktop.test.ts` 新增选中项回退 1 例（共 12 项）。
+- `apps/desktop/scripts/smoke.mjs` 扩展：在已有两个任务的隔离 profile 中选中较早任务、确认删除，断言列表只剩 1 条、选中项回退到剩余任务、`listJobs()` 与后端记录同步、删除未知任务返回中文错误；随后重启，断言只恢复未删除的任务。冒烟输出「通过：工作台确认删除历史任务，列表、选中项与后端记录同步更新」与「已删除任务不再出现」。
+- 检查：`check_repository.py`、`ruff check backend scripts`、`ruff format --check backend scripts` 通过；`pytest -q`（`TMPDIR=data/tmp`）149 passed；桌面端 `lint`、`typecheck`、`build` 通过，`pnpm test` 12 passed；`env -u ELECTRON_RUN_AS_NODE pnpm --dir apps/desktop smoke` 通过（含删除步骤与重启恢复）。
+- 未执行：真实模型转录完成的较长任务删除后的人工复核（删除逻辑与任务内容无关，本轮用合成信号冒烟覆盖删除与重启持久化）。

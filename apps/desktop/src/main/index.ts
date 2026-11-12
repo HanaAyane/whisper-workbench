@@ -61,6 +61,7 @@ function installIpc() {
   handle('create-job', workbench.createJob.bind(workbench))
   handle('list-jobs', () => workbench.listJobs())
   handle('cancel-job', workbench.cancelJob.bind(workbench))
+  handle('delete-job', workbench.deleteJob.bind(workbench))
   handle('update-segment', workbench.updateSegment.bind(workbench))
   handle('review-segment', workbench.reviewSegment.bind(workbench))
   handle('export-job', workbench.exportJob.bind(workbench))

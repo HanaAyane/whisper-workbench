@@ -197,11 +197,13 @@ export interface WorkbenchApi {
   createJob(input: JobInput, options: JobOptions): Promise<DesktopJob>
   listJobs(): Promise<DesktopJob[]>
   cancelJob(jobId: string): Promise<void>
+  deleteJob(jobId: string): Promise<void>
   updateSegment(jobId: string, segmentId: number, edit: SegmentEdit): Promise<void>
   reviewSegment(jobId: string, segmentId: number, decision: SegmentReview): Promise<void>
   exportJob(jobId: string, format: ExportFormat, policy: OverwritePolicy): Promise<string | null>
   exportJobToDirectory(jobId: string, format: ExportFormat, directory: string, baseName: string): Promise<string>
   onJobUpdate(callback: (job: DesktopJob) => void): () => void
+  onJobRemoved(callback: (jobId: string) => void): () => void
   pickModelDirectory(): Promise<ModelCatalog | null>
   openModelDirectory(): Promise<void>
   rescanModels(): Promise<ModelCatalog>

@@ -4,7 +4,7 @@ import asyncio
 import re
 import secrets
 
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 
 from app.asr.model_manager import ModelError
@@ -43,6 +43,17 @@ def get_job(job_id: str, request: Request) -> JobStatus:
         return request.app.state.job_manager.get_job(job_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="任务不存在或已过期。") from exc
+
+
+@router.delete("/jobs/{job_id}", status_code=204)
+def delete_job(job_id: str, request: Request) -> Response:
+    try:
+        request.app.state.job_manager.delete_job(job_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期。") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return Response(status_code=204)
 
 
 @router.post("/jobs/{job_id}/cancel", response_model=JobStatus)

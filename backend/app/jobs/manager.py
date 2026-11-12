@@ -23,7 +23,15 @@ from app.glossary.models import GlossaryEntry, GlossaryNotFoundError, GlossaryVa
 from app.glossary.store import GlossaryStore
 from app.jobs.cancellation import JobCancelled
 from app.jobs.review import edit_text, propose, review
-from app.jobs.schemas import JobRequest, JobStage, JobStatus, Segment, SegmentEdit, SegmentReview
+from app.jobs.schemas import (
+    ACTIVE_STATES,
+    JobRequest,
+    JobStage,
+    JobStatus,
+    Segment,
+    SegmentEdit,
+    SegmentReview,
+)
 from app.storage.jobs import JobStore
 from app.translation.deepseek import DeepSeekConfig, DeepSeekTranslator, TranslationError
 
@@ -166,6 +174,16 @@ class JobManager:
     def list_jobs(self) -> list[JobStatus]:
         with self._lock:
             return self._store.list()
+
+    def delete_job(self, job_id: str) -> None:
+        """删除已结束任务的本地记录；不删除用户的媒体文件和保留的录音副本。"""
+        with self._lock:
+            job = self._store.get(job_id)
+            if job.state in ACTIVE_STATES:
+                raise ValueError("任务尚未结束，请先取消并等待结束后再删除。")
+            self._store.delete(job_id)
+            self._listeners.pop(job_id, None)
+            self._recordings.pop(job_id, None)
 
     def update_segment(self, job_id: str, segment_id: int, edit: SegmentEdit) -> JobStatus:
         return self._change_segment(

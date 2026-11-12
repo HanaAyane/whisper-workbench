@@ -60,6 +60,14 @@ class JobStore:
         ).fetchone()
         return _ENTRIES.validate_json(row[0]) if row is not None else []
 
+    def delete(self, job_id: str) -> None:
+        """删除任务快照和词表快照；媒体文件与录音副本不由任务库处理。"""
+        with self._db:
+            cursor = self._db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
+            self._db.execute("DELETE FROM job_glossaries WHERE id = ?", (job_id,))
+        if cursor.rowcount == 0:
+            raise KeyError(job_id)
+
     def save(self, *jobs: JobStatus, entries: list[GlossaryEntry] | None = None) -> None:
         with self._db:
             self._db.executemany(
