@@ -1,6 +1,6 @@
 # 项目状态
 
-更新日期：2026-11-10（Asia/Shanghai）。
+更新日期：2026-11-12（Asia/Shanghai）。
 
 ## 当前状态
 
@@ -10,6 +10,7 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 
 ## 发布与验收边界
 
+- **Windows x64（v0.2.0）**。`v0.2.0` 基于提交 `ca0e6a8` 公开发布，只提供 NSIS 安装版 `WhisperWorkbench-0.2.0-win-x64-setup.exe`，模型改为安装目录 `model/` 自动发现。安装、带中文与空格路径的卸载、打包版启动与冻结 sidecar 版本校验通过；本机没有模型权重，最终安装包未跑真实转录。[GitHub Release v0.2.0](https://github.com/HanaAyane/whisper-workbench/releases/tag/v0.2.0)
 - **Windows x64**。`v0.1.0` 基于提交 `35a9de0` 公开发布，提供 NSIS 安装版和便携版。两个包均包含冻结的 sidecar，模型权重需另行准备。打包版已用真实日语样本验证转录与 SRT 导出。[GitHub Release v0.1.0](https://github.com/HanaAyane/whisper-workbench/releases/tag/v0.1.0)
 - **macOS arm64**。已完成本地 DMG/ZIP 构建、ad-hoc 签名和打包版启动烟雾检查。首版公开下载只提供 Windows。macOS 的默认模型端到端转录仍缺少验收记录，构建未做 Developer ID 签名和公证。手动打包工作流已配置，现有验收记录来自本机构建。
 - **翻译与评测**。CLI 曾用真实日语样本跑通 DeepSeek API，桌面复核链路使用环回翻译 mock。翻译质量、专名一致性和系统性性能评测均未形成基准结论。
@@ -218,3 +219,12 @@ Whisper 工作台已完成 0 到 1 的基础框架搭建。首版已打通录音
 - 7.4 完成后复跑：`ruff check backend scripts`、`ruff format --check backend scripts` 通过；`pytest -q --basetemp=data/pytest-tmp` 137 passed（1 条 Starlette 弃用警告）；`check_repository.py` 通过；`pnpm --dir apps/desktop typecheck`、`lint`、`test`（8 passed）、`build` 通过。
 - 7.5 完成后复跑：`ruff check`、`ruff format --check`、`check_repository.py` 通过；`pytest -q`（`TMPDIR=data/tmp`）147 passed；桌面 `typecheck`、`lint`、`test`（11 passed）、`build` 通过。
 - `pnpm --dir apps/desktop smoke` 通过（窗口/IPC/本地服务、术语表预览、模拟麦克风录音、四格式导出、退出清理与重启恢复）。本轮合成样本转录为 0 段，环回翻译 mock 分支未被触发；新边界格式的 mock 解析由 `desktop.test.ts` 针对真实请求形状单独覆盖。未执行：需要真实日语语音的 `JP_WORKBENCH_SMOKE_AUDIO` 冒烟（本机无可用样本）。
+
+### 7.6 v0.2.0 发布构建与验收
+
+- 版本：桌面端 `apps/desktop/package.json`、后端 `VERSION` 与验证脚本的版本校验统一为 `0.2.0`；标签 `v0.2.0` 指向提交 `ca0e6a8`。README 更新安装包名称并补充卸载说明，安装目录的模型放置说明增加卸载前备份提示。
+- 构建：`pnpm --dir apps/desktop dist` 成功（`tsc` + `vite build`、PyInstaller 重建冻结 sidecar、Electron Builder 只产出 NSIS 安装版）。产物 `WhisperWorkbench-0.2.0-win-x64-setup.exe` 为 190,722,104 字节（181.89 MiB），SHA-256 `c1c0fbf5fd36d3ac312a37a263d523a70f5b138b1dd4ec8581d1840c591fdd21`；GitHub Release 资产的 `digest` 与本地一致，`SHA256SUMS.txt` 随 Release 提供。
+- 安装验收：NSIS 静默安装到含中文与空格的隔离目录成功，实际安装位置为所选目录下的 `jp-voice-workbench/`；安装目录生成 `model/放置模型说明.txt`（含放置路径、五个必需文件、VAD 与获取说明、卸载前备份提示），`Whisper工作台.exe` 的 `ProductVersion` 为 `0.2.0.0`。从已安装目录运行 `scripts/smoke-package.mjs` 通过（启动、安装目录 `model/` 自动发现、设置页模型目录与重新扫描、术语导入预览、重启后恢复历史）；静默卸载后应用文件与安装目录被清除。
+- 冻结 sidecar：直接启动 `release/win-unpacked/resources/sidecar/jp-sidecar.exe`，`GET /api/health` 返回 `{"status":"ok","version":"0.2.0","models_ok":false}`。
+- 发布前自动化：`check_repository.py`、`ruff check`、`ruff format --check` 通过；`pytest -q`（`TMPDIR=data/tmp`）147 passed；桌面端 `lint`、`typecheck`、`test`（11 passed）通过。提交 `ca0e6a8` 推送到 `main` 与标签 `v0.2.0` 后，`项目检查` 工作流两次运行均通过。
+- 未执行：最终安装包内的真实模型转录与字幕导出（本机没有模型权重，真实日语样本为上一轮用户临时提供）；macOS 构建与发布（本次只发 Windows）；卸载保留模型（当前实现随安装目录一起删除，已在 README、安装说明和 Release 说明中提示）。
